@@ -748,7 +748,7 @@ local topicLabels=setmetatable({},{__mode='k'})
 local watchedGui,watchedWorld=nil,false
 local function watchTopics(root)
     local function add(item)
-        if item:IsA('TextLabel') then topicLabels[item]=true end
+        if item:IsA('TextLabel') or item:IsA('TextButton') then topicLabels[item]=true end
     end
     for _,item in ipairs(root:GetDescendants()) do add(item) end
     table.insert(session.connections,root.DescendantAdded:Connect(add))
@@ -756,7 +756,7 @@ end
 local blockedNames={'rank','leaderboard','money','cash','coin','chat','bubble',
     'playerlist','playerword','answer','submitted','history','rayfield',
     '랭킹','순위','돈','채팅','답안','제출','기록'}
-local function topicDisplayVisible(label)
+local function topicDisplayVisible(label,purpose)
     if not label.Parent or not label:IsA('GuiObject') then return false end
     local layer=label:FindFirstAncestorWhichIsA('LayerCollector')
     if not layer or not layer.Enabled or layer:IsA('BillboardGui') then return false end
@@ -766,7 +766,8 @@ local function topicDisplayVisible(label)
         if node:IsA('GuiObject') and not node.Visible then return false end
         local name=node.Name:lower()
         for _,term in ipairs(blockedNames) do
-            if name:find(term,1,true) then return false end
+            local answerName=term=='answer' or term=='submitted' or term=='답안' or term=='제출'
+            if not (purpose=='input' and answerName) and name:find(term,1,true) then return false end
         end
         node=node.Parent
     end
@@ -824,6 +825,24 @@ local function topicEvidence(label)
         if marker and values==1 then return text,1 end
     end
 end
+-- Bind plain prompts to the game's visible entry box instead of screen height alone.
+local function aboveGameInput(label)
+    local layer=label:FindFirstAncestorOfClass('ScreenGui')
+    if not layer then return false end
+    local center=label.AbsolutePosition+label.AbsoluteSize/2
+    for _,item in ipairs(layer:GetDescendants()) do
+        if item:IsA('TextBox') and topicDisplayVisible(item,'input') then
+            local pos,size=item.AbsolutePosition,item.AbsoluteSize
+            local gap=pos.Y-(label.AbsolutePosition.Y+label.AbsoluteSize.Y)
+            if gap>=-size.Y*0.3 and gap<=math.max(size.Y*2,100)
+                and center.Y<pos.Y+size.Y/2
+                and center.X>=pos.X-size.X*0.2 and center.X<=pos.X+size.X*1.3 then
+                return true
+            end
+        end
+    end
+    return false
+end
 -- Layout rule for games that show the topic as plain big text at the top center.
 -- Skips round numbers, timer text and prompts; the biggest remaining label wins.
 local function layoutTopic(label)
@@ -833,7 +852,8 @@ local function layoutTopic(label)
     if not camera then return nil end
     local view=camera.ViewportSize
     local center=label.AbsolutePosition+label.AbsoluteSize/2
-    if center.Y>view.Y*0.32 or math.abs(center.X-view.X/2)>view.X*0.22 then return nil end
+    local anchored=aboveGameInput(label)
+    if not anchored and (center.Y>view.Y*0.42 or math.abs(center.X-view.X/2)>view.X*0.25) then return nil end
     local text=displayText(label)
     local length=utf8.len(text)
     if not length or length<1 or length>20 then return nil end
@@ -844,9 +864,9 @@ local function layoutTopic(label)
     end
     -- A bare unknown answer must never become a new category.
     for name in pairs(bank) do
-        if topicKey(name):lower()==topicKey(text):lower() then return text,0 end
+        if topicKey(name):lower()==topicKey(text):lower() then return text,anchored and 4 or 0 end
     end
-    if topicPeers[topicKey(text):lower()] then return text,0 end
+    if topicPeers[topicKey(text):lower()] then return text,anchored and 4 or 0 end
     return nil
 end
 local pendingSource,pendingTopic,pendingSince=nil,nil,0
@@ -862,7 +882,7 @@ local function detectTopic()
     if gui and gui~=watchedGui then watchedGui=gui;watchTopics(gui) end
     if not watchedWorld then watchedWorld=true;watchTopics(workspace) end
     local normalized={}
-    for name in pairs(bank) do normalized[topicKey(name):lower()]=name end
+    for name in pairs(bank) do if not reservedTopic(name) then normalized[topicKey(name):lower()]=name end end
     local best,ambiguous=nil,false
     for label in pairs(topicLabels) do
         if topicDisplayVisible(label) then
@@ -912,13 +932,13 @@ local function nextWord()
     if gameMode=='끝말잇기' then return chooseChain() end
     if manualTopic or autoDetect then
         if not detectTopic() then
-            return nil,'화면 주제 감지 대기 중','waiting'
+            return nil,'화면 주제 감지 대기 중 · 입력창 위의 주제 표시 확인','waiting'
         end
     end
     if not topic then return nil,'주제를 고르거나 설정에서 자동 감지를 켜세요.' end
     local list=topicWords()
     if not list or #list==0 then
-        return nil,'다른 플레이어의 단어를 기다리는 중','waiting'
+        return nil,'주제: '..topic..' · 등록된 단어가 없습니다','waiting'
     end
     local word=choose()
     return word,word and nil or '이 주제의 미사용 단어가 없습니다.'
@@ -940,7 +960,7 @@ local function gameInput()
     if not gui then return nil,'게임 입력창을 찾는 중' end
     local candidates={}
     for _,item in ipairs(gui:GetDescendants()) do
-        if item:IsA('TextBox') and topicDisplayVisible(item) then
+        if item:IsA('TextBox') and topicDisplayVisible(item,'input') then
             table.insert(candidates,item)
         end
     end
@@ -963,7 +983,7 @@ local function submitButton(box)
     local best,bestDistance=nil,math.huge
     local boxCenter=box.AbsolutePosition+box.AbsoluteSize/2
     for _,item in ipairs(screen:GetDescendants()) do
-        if item:IsA('GuiButton') and topicDisplayVisible(item) then
+        if item:IsA('GuiButton') and topicDisplayVisible(item,'input') then
             local text=item:IsA('TextButton') and displayText(item) or ''
             local key=(item.Name..' '..text):lower()
             local green=item.BackgroundColor3
