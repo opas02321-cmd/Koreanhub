@@ -748,8 +748,7 @@ local topicLabels=setmetatable({},{__mode='k'})
 local watchedGui,watchedWorld=nil,false
 local function watchTopics(root)
     local function add(item)
-        if item:IsA('TextLabel') or item:IsA('TextButton')
-            or (item:IsA('TextBox') and item.TextEditable==false) then topicLabels[item]=true end
+        if item:IsA('TextLabel') or item:IsA('TextButton') or item:IsA('TextBox') then topicLabels[item]=true end
     end
     for _,item in ipairs(root:GetDescendants()) do add(item) end
     table.insert(session.connections,root.DescendantAdded:Connect(add))
@@ -782,6 +781,19 @@ local function topicDisplayVisible(label,purpose)
         if other.Character and label:IsDescendantOf(other.Character) then return false end
         if other.Character and layer:IsA('SurfaceGui') and layer.Adornee
             and layer.Adornee:IsDescendantOf(other.Character) then return false end
+    end
+    if layer:IsA('ScreenGui') then
+        local p,z=label.AbsolutePosition,label.AbsoluteSize
+        if z.X<=0 or z.Y<=0 then return false end
+        local node=label.Parent
+        while node and node~=layer do
+            if node:IsA('GuiObject') and node.ClipsDescendants then
+                local q,w=node.AbsolutePosition,node.AbsoluteSize
+                if w.X<=0 or w.Y<=0 or p.X+z.X<=q.X or p.Y+z.Y<=q.Y
+                    or p.X>=q.X+w.X or p.Y>=q.Y+w.Y then return false end
+            end
+            node=node.Parent
+        end
     end
     return true
 end
@@ -842,6 +854,45 @@ local function aboveGameInput(label)
     end
     return false
 end
+-- The recording's diagnostic identifies Workspace.TowerClient.Cat*.Cat*.F.TextLabel.
+-- These are 3D SurfaceGui category signs, separate from the ReactApp entry box.
+local worldTopicDistance={}
+local function worldTopic(label)
+    local layer=label:FindFirstAncestorWhichIsA('LayerCollector')
+    if not layer or not layer:IsA('SurfaceGui') then return nil end
+    local tower=workspace:FindFirstChild('TowerClient')
+    if not tower or not label:IsDescendantOf(tower) then return nil end
+    local part=layer.Adornee or layer.Parent
+    if not part or not part:IsA('BasePart') then return nil end
+    local camera=workspace.CurrentCamera
+    if not camera then return nil end
+    local screenPosition,onScreen=camera:WorldToViewportPoint(part.Position)
+    if not onScreen or screenPosition.Z<=0 then return nil end
+    local gui=player:FindFirstChildOfClass('PlayerGui')
+    if not gui then return nil end
+    local bestDistance=math.huge
+    for _,box in ipairs(gui:GetDescendants()) do
+        if box:IsA('TextBox') and box.TextEditable~=false and topicDisplayVisible(box,'input') then
+            local pos,size=box.AbsolutePosition,box.AbsoluteSize
+            if size.X>0 and size.Y>0 then
+                local targetX=pos.X+size.X/2
+                local targetY=pos.Y-size.Y*0.65
+                local dx,dy=screenPosition.X-targetX,screenPosition.Y-targetY
+                local distance=math.sqrt(dx*dx+dy*dy)
+                if distance<bestDistance and math.abs(dx)<math.max(size.X*0.7,120)
+                    and screenPosition.Y<pos.Y+size.Y*0.25 then bestDistance=distance end
+            end
+        end
+    end
+    if bestDistance>math.max(camera.ViewportSize.Y*0.4,180) then return nil end
+    local value=displayText(label)
+    local key=topicKey(value):lower()
+    local known=topicPeers[key]~=nil
+    for name in pairs(bank) do if topicKey(name):lower()==key then known=true;break end end
+    if not known or deletedTopics[key] then return nil end
+    worldTopicDistance[label]=bestDistance
+    return value,5
+end
 -- Layout rule for games that show the topic as plain big text at the top center.
 -- Skips round numbers, timer text and prompts; the biggest remaining label wins.
 local function layoutTopic(label)
@@ -890,6 +941,7 @@ local function detectTopic()
     for label in pairs(topicLabels) do
         if topicDisplayVisible(label) then
             local value,evidence=topicEvidence(label)
+            if not value then value,evidence=worldTopic(label) end
             if not value then value,evidence=layoutTopic(label) end
             if value then
                 value=value:match('^%s*(.-)%s*$')
@@ -901,7 +953,7 @@ local function detectTopic()
                 end
                 if length and length>=1 and length<=40 and not blocked and not deletedTopics[key] then
                     local name=normalized[key] or value
-                    local size=label.TextBounds.Y
+                    local size=evidence==5 and -worldTopicDistance[label] or label.TextBounds.Y
                     if not best or evidence>best.evidence
                         or (evidence==best.evidence and size>best.size+0.5) then
                         best={label=label,name=name,evidence=evidence,size=size}
@@ -919,11 +971,12 @@ local function detectTopic()
         topic=nil
         return false
     end
-    if pendingSource~=best.label or pendingTopic~=best.name then
+    if pendingTopic~=best.name then
         pendingSource,pendingTopic,pendingSince=best.label,best.name,os.clock()
         topic=nil
         return false
     end
+    pendingSource=best.label
     if os.clock()-pendingSince<0.15 then return false end
     bank[best.name]=bank[best.name] or {}
     if topic~=best.name then topic=best.name;used={};notify('주제 인식',best.name) end
@@ -983,12 +1036,20 @@ end
 local function roundReady()
     local box,reason=gameInput()
     if not box then return false,reason or '게임 시작 대기 중' end
+    local pos,size=box.AbsolutePosition,box.AbsoluteSize
+    if size.X<=0 or size.Y<=0 then return false,'입력창 활성화 대기 중' end
     local screen=box:FindFirstAncestorOfClass('ScreenGui')
     for label in pairs(topicLabels) do
         if topicDisplayVisible(label) and label:FindFirstAncestorOfClass('ScreenGui')==screen then
             local text=topicKey(displayText(label))
             if text=='제한시간종료' or text=='게임종료' or text=='라운드종료' then
-                return false,'라운드 종료 · 다음 게임 대기 중'
+                local p,z=label.AbsolutePosition,label.AbsoluteSize
+                local centerX=p.X+z.X/2
+                local gap=pos.Y-(p.Y+z.Y)
+                if z.X>0 and z.Y>0 and gap>=-size.Y*0.3 and gap<=math.max(size.Y*2,100)
+                    and centerX>=pos.X-size.X*0.2 and centerX<=pos.X+size.X*1.3 then
+                    return false,'라운드 종료 · 다음 게임 대기 중'
+                end
             end
         end
     end
@@ -1124,6 +1185,7 @@ BasicTab:CreateButton({Name='감지 상태 진단',Callback=function()
     end
     local input,reason=gameInput()
     table.insert(lines,'입력창: '..(input and input:GetFullName() or (reason or '없음')))
+    if pendingSource then table.insert(lines,'주제 후보 경로: '..pendingSource:GetFullName()) end
     notify('감지 진단',table.concat(lines,'\n'))
 end})
 HunminTab:CreateSection('초성 두 글자')
