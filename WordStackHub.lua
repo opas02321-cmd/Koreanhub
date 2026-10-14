@@ -748,7 +748,8 @@ local topicLabels=setmetatable({},{__mode='k'})
 local watchedGui,watchedWorld=nil,false
 local function watchTopics(root)
     local function add(item)
-        if item:IsA('TextLabel') or item:IsA('TextButton') then topicLabels[item]=true end
+        if item:IsA('TextLabel') or item:IsA('TextButton')
+            or (item:IsA('TextBox') and item.TextEditable==false) then topicLabels[item]=true end
     end
     for _,item in ipairs(root:GetDescendants()) do add(item) end
     table.insert(session.connections,root.DescendantAdded:Connect(add))
@@ -761,13 +762,19 @@ local function topicDisplayVisible(label,purpose)
     local layer=label:FindFirstAncestorWhichIsA('LayerCollector')
     if not layer or not layer.Enabled or layer:IsA('BillboardGui') then return false end
     if not layer:IsA('ScreenGui') and not layer:IsA('SurfaceGui') then return false end
+    -- Stop at the UI layer; a player/container name is not UI evidence.
     local node=label
-    while node and node~=game do
+    while node and node~=layer.Parent do
         if node:IsA('GuiObject') and not node.Visible then return false end
         local name=node.Name:lower()
-        for _,term in ipairs(blockedNames) do
-            local answerName=term=='answer' or term=='submitted' or term=='답안' or term=='제출'
-            if not (purpose=='input' and answerName) and name:find(term,1,true) then return false end
+        for _,term in ipairs({'rayfield','textchat','chatwindow','bubblechat','leaderboard','playerlist','money','cash','coin','랭킹','채팅'}) do
+            if name:find(term,1,true) then return false end
+        end
+        -- Answer rows are excluded without excluding an entire AnswerUI panel.
+        if purpose~='input' and node==label then
+            for _,term in ipairs({'playerword','submittedword','answerrow','답안목록'}) do
+                if name:find(term,1,true) then return false end
+            end
         end
         node=node.Parent
     end
@@ -775,14 +782,6 @@ local function topicDisplayVisible(label,purpose)
         if other.Character and label:IsDescendantOf(other.Character) then return false end
         if other.Character and layer:IsA('SurfaceGui') and layer.Adornee
             and layer.Adornee:IsDescendantOf(other.Character) then return false end
-    end
-    if layer:IsA('ScreenGui') then
-        local camera=workspace.CurrentCamera
-        if not camera then return false end
-        local pos,size=label.AbsolutePosition,label.AbsoluteSize
-        local view=camera.ViewportSize
-        if size.X<=0 or size.Y<=0 or pos.X+size.X<=0 or pos.Y+size.Y<=0
-            or pos.X>=view.X or pos.Y>=view.Y then return false end
     end
     return true
 end
@@ -831,7 +830,7 @@ local function aboveGameInput(label)
     if not layer then return false end
     local center=label.AbsolutePosition+label.AbsoluteSize/2
     for _,item in ipairs(layer:GetDescendants()) do
-        if item:IsA('TextBox') and topicDisplayVisible(item,'input') then
+        if item:IsA('TextBox') and item.TextEditable~=false and topicDisplayVisible(item,'input') then
             local pos,size=item.AbsolutePosition,item.AbsoluteSize
             local gap=pos.Y-(label.AbsolutePosition.Y+label.AbsoluteSize.Y)
             if gap>=-size.Y*0.3 and gap<=math.max(size.Y*2,100)
@@ -848,17 +847,21 @@ end
 local function layoutTopic(label)
     local layer=label:FindFirstAncestorWhichIsA('LayerCollector')
     if not layer or not layer:IsA('ScreenGui') then return nil end
-    local camera=workspace.CurrentCamera
-    if not camera then return nil end
-    local view=camera.ViewportSize
-    local center=label.AbsolutePosition+label.AbsoluteSize/2
     local anchored=aboveGameInput(label)
-    if not anchored and (center.Y>view.Y*0.42 or math.abs(center.X-view.X/2)>view.X*0.25) then return nil end
+    -- Read stored UI text even if another window visually covers it.
+    -- A known topic must share a live game input layer; geometry only boosts confidence.
+    local hasInput=false
+    for _,item in ipairs(layer:GetDescendants()) do
+        if item:IsA('TextBox') and item.TextEditable~=false and topicDisplayVisible(item,'input') then
+            hasInput=true;break
+        end
+    end
+    if not hasInput then return nil end
     local text=displayText(label)
     local length=utf8.len(text)
-    if not length or length<1 or length>20 then return nil end
+    if not length or length<1 or length>40 then return nil end
     if topicMarker(text) then return nil end
-    if text:find('[!?#:%d]') then return nil end
+    if text:find('[!?#:]') or text:match('^%d+$') then return nil end
     for _,term in ipairs({'입력','시간','라운드','점수','라이프','목숨','남은','종료','시작'}) do
         if text:find(term,1,true) then return nil end
     end
@@ -960,7 +963,7 @@ local function gameInput()
     if not gui then return nil,'게임 입력창을 찾는 중' end
     local candidates={}
     for _,item in ipairs(gui:GetDescendants()) do
-        if item:IsA('TextBox') and topicDisplayVisible(item,'input') then
+        if item:IsA('TextBox') and item.TextEditable~=false and topicDisplayVisible(item,'input') then
             table.insert(candidates,item)
         end
     end
@@ -976,6 +979,20 @@ local function gameInput()
         end
     end
     return best,best and nil or '단어 입력창을 찾는 중'
+end
+local function roundReady()
+    local box,reason=gameInput()
+    if not box then return false,reason or '게임 시작 대기 중' end
+    local screen=box:FindFirstAncestorOfClass('ScreenGui')
+    for label in pairs(topicLabels) do
+        if topicDisplayVisible(label) and label:FindFirstAncestorOfClass('ScreenGui')==screen then
+            local text=topicKey(displayText(label))
+            if text=='제한시간종료' or text=='게임종료' or text=='라운드종료' then
+                return false,'라운드 종료 · 다음 게임 대기 중'
+            end
+        end
+    end
+    return true
 end
 local function submitButton(box)
     local screen=box:FindFirstAncestorOfClass('ScreenGui')
@@ -1025,6 +1042,8 @@ local function sendWord(word)
     return true
 end
 local function attempt()
+    local ready,waiting=roundReady()
+    if not ready and inputMode=='게임 입력창' then status(waiting);return end
     local word,reason=nextWord()
     if not word then status(reason or '단어 대기 중');return end
     local sent,message=sendWord(word)
@@ -1085,6 +1104,28 @@ BasicTab:CreateButton({Name='단어 한 번 입력',Callback=function()
     if not success then status('오류: '..tostring(err)) end
 end})
 BasicTab:CreateParagraph({Title='주제 구분',Content='주제와 플레이어 답안을 따로 읽습니다. 자동차·자동차 브랜드 등 지정된 유사 주제는 단어를 공유합니다. 랭킹·돈·채팅은 주제에서 제외합니다.'})
+BasicTab:CreateButton({Name='감지 상태 진단',Callback=function()
+    detectTopic()
+    local gui=player:FindFirstChildOfClass('PlayerGui')
+    local lines={'현재 주제: '..tostring(topic),'화면 UI가 다른 창에 덮여도 Text 값을 직접 읽습니다.'}
+    local count=0
+    for label in pairs(topicLabels) do
+        if label.Parent then
+            local value=displayText(label)
+            local key=topicKey(value):lower()
+            local known=false
+            for name in pairs(bank) do if topicKey(name):lower()==key then known=true;break end end
+            if known and count<8 then
+                count=count+1
+                local good=topicDisplayVisible(label)
+                table.insert(lines,value..' | '..label.ClassName..' | '..(good and '읽기 가능' or 'UI 필터 제외')..' | '..label:GetFullName())
+            end
+        end
+    end
+    local input,reason=gameInput()
+    table.insert(lines,'입력창: '..(input and input:GetFullName() or (reason or '없음')))
+    notify('감지 진단',table.concat(lines,'\n'))
+end})
 HunminTab:CreateSection('초성 두 글자')
 HunminTab:CreateButton({Name='훈민정음 모드 사용',Callback=function() switchMode('훈민정음') end})
 HunminTab:CreateInput({Name='초성 보조 입력',PlaceholderText='예: ㄱㅅ',RemoveTextAfterFocusLost=false,Callback=function(value)
@@ -1227,8 +1268,10 @@ task.spawn(function()
             if enabled then
                 detectDisplayedPrompt()
                 local ready=detectTopic()
-                if ready then observeAnswers() end
-                if os.clock()-lastAttempt>=currentInterval() then
+                local active,waiting=roundReady()
+                if ready and active then observeAnswers() end
+                if not active then topic=nil;used={};pendingSource,pendingTopic=nil,nil;status(waiting) end
+                if active and os.clock()-lastAttempt>=currentInterval() then
                     lastAttempt=os.clock()
                     attempt()
                 end
