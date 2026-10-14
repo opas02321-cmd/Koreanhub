@@ -27,6 +27,7 @@ local HunminTab=Window:CreateTab('훈민정음',4483362458)
 local ChainTab=Window:CreateTab('끝말잇기',4483362458)
 local SettingsTab=Window:CreateTab('설정',4483362458)
 local Words=Window:CreateTab('단어 추가',4483362458)
+local TopicsTab=Window:CreateTab('주제 관리',4483362458)
 local function notify(title,msg)
     Rayfield:Notify({Title=title,Content=msg,Duration=4})
 end
@@ -403,10 +404,52 @@ local oneShots={
     '무늬','볼륨','논두렁','수렁','리듬','비듬','오믈렛','아웃렛',
     '치킨','냅킨','눈썹','속눈썹'
 }
+
+-- General candidates; not claimed to be extracted or accepted from YouTube.
+mergeWords({
+    ['자동차']=W[[승용차 승합차 경차 소형차 중형차 대형차 스포츠카 슈퍼카 전기차 하이브리드 수소차 세단 해치백 왜건 쿠페 컨버터블 SUV RV 리무진 픽업트럭 캠핑카]],
+    ['자동차 모델']=W[[아반떼 쏘나타 그랜저 제네시스 팰리세이드 싼타페 투싼 코나 베뉴 캐스퍼 아이오닉 아이오닉파이브 아이오닉식스 스타리아 스타렉스 포터 모닝 레이 프라이드 K3 K5 K7 K8 K9 셀토스 니로 스포티지 쏘렌토 카니발 모하비 EV3 EV6 EV9 봉고 티볼리 토레스 렉스턴 코란도 트랙스 트레일블레이저 말리부 스파크 카마로 콜벳 머스탱 익스플로러 모델에스 모델쓰리 모델엑스 모델와이 사이버트럭 프리우스 캠리 코롤라 시빅 어코드 골프 티구안 파사트 비틀 카이엔 파나메라 타이칸 마칸 디펜더 디스커버리 레인지로버]],
+    ['치킨집']=W[[기영이숯불두마리치킨 노랑통닭 자담치킨 푸라닭치킨 지코바치킨 숯불에닭 꾸브라꼬숯불두마리치킨 훌랄라참숯바베큐치킨 또봉이통닭 가마치통닭 오븐마루치킨 치킨플러스 치킨신드롬 치킨매니아 순살만공격 호식이두마리치킨 처갓집양념치킨 페리카나 멕시카나 멕시칸치킨 네네치킨 굽네치킨 교촌치킨 비비큐 비에이치씨]],
+    ['치즈']=W[[파르미지아노레지아노 파르메산 모차렐라 모짜렐라 체더 고다 에멘탈 그뤼예르 브리 카망베르 고르곤졸라 로크포르 리코타 마스카르포네 페타 할루미 프로볼로네 페코리노로마노 몬터레이잭 콜비 크림치즈 스트링치즈 부라타 블루치즈 에담 뮌스터 스틸턴 아시아고 폰티나 라클레트]],
+    ['무지개색']=W[[빨강 주황 노랑 초록 파랑 남색 보라 빨간색 주황색 노란색 초록색 파란색 보라색]],
+    ['세계 수도']=W[[서울 도쿄 베이징 타이베이 울란바토르 하노이 방콕 프놈펜 비엔티안 네피도 쿠알라룸푸르 싱가포르 반다르스리브가완 마닐라 뉴델리 카트만두 팀푸 다카 이슬라마바드 카불 말레 아부다비 도하 리야드 무스카트 마나마 쿠웨이트 암만 베이루트 바그다드 테헤란 앙카라 아테네 로마 파리 런던 베를린 마드리드 리스본 브뤼셀 암스테르담 룩셈부르크 베른 빈 프라하 브라티슬라바 부다페스트 바르샤바 코펜하겐 오슬로 스톡홀름 헬싱키 레이캬비크 더블린 탈린 리가 빌뉴스 키이우 부쿠레슈티 소피아 베오그라드 자그레브 사라예보 류블랴나 스코페 티라나 포드고리차 키시너우 민스크 모스크바 트빌리시 예레반 바쿠 카이로 라바트 알제 튀니스 트리폴리 다카르 아부자 아크라 나이로비 캄팔라 키갈리 아디스아바바 루안다 하라레 루사카 킨샤사 프리토리아 워싱턴 오타와 멕시코시티 과테말라시티 산살바도르 테구시갈파 마나과 산호세 파나마시티 아바나 킹스턴 보고타 키토 리마 수크레 라파스 산티아고 부에노스아이레스 몬테비데오 아순시온 브라질리아 카라카스 조지타운 파라마리보 캔버라 웰링턴 포트모르즈비 수바 아피아 누쿠알로파]],
+    ['훈민정음']=W[[가축 간호 감각 강사 개념 건축 견학 결말 계산 고장 곡식 공책 과학 관객 광고 구독 국수 군인 글자 기초 난방 날개 남매 냉장 녹차 단서 달성 대기 대회 덧셈 도로 독감 동시 등산 라면 만점 매실 멸치 명절 모금 무인 문구 물감 반장 발명 배구 백합 보건 복습 부품 분식 비율 사격 산소 상식 서명 성적 세금 소금 수학 순서 시청 신문 실험 안부 약품 양궁 예산 오답 온천 완성 운동 의사 의자 인구 자격 장마 저축 전철 접시 정류 조언 주제 증거 지리 진로 참외 책임 청년 초점 체험 축제 출발 칠월 타조 태양 통장 파장 편집 표현 해설 현미 화학 환율 회복 효도 후추]],
+    ['끝말잇기']=W[[가족관계등록부 가상현실체험관 개인정보처리방침 건강검진센터 건축사사무소 고속버스터미널 공중전화부스 국제운전면허증 기초생활수급자 김치부침개 나무늘보 냉난방시스템 다문화가정지원센터 대한민국헌법 도로교통공단 동물보호단체 디지털카메라 마을회관 무인자동판매기 문화체육관광부 반도체집적회로 방과후돌봄교실 버스정류장 보조배터리 비디오게임 사물인터넷기술 소프트웨어개발자 스마트워치 식품의약품안전처 어린이보호구역 온라인도서관 우주정거장 유전자검사 의료보험증 인공위성통신 자원봉사센터 전자상거래 지방자치단체 초고속인터넷 컴퓨터프로그램 통신판매업 환경보호단체]],
+    ['한방 단어']=W[[디스프로슘 홀뮴 툴륨 네오디뮴 프라세오디뮴 프로메튬 사마륨 가돌리늄 터븀 어븀 이터븀 루테튬 하프늄 니오븀 로듐 팔라듐 카드뮴 인듐 탈륨 비스무트 테크네튬 악티늄 프로트악티늄 넵투늄 아메리슘 퀴륨 버클륨 캘리포늄 페르뮴 노벨륨 로렌슘]],
+})
+-- 1950.mp4: successful words read from result rows (not chat or captions).
+-- These are observations for this recording, not a universal server guarantee.
+local videoWords={
+    ['KBO 한국프로야구']=W[[KIA타이거즈 KiA타이거즈 kiA타이거즈 Kia타이거즈 kIa타이거즈 삼성라이온즈]],
+    ['원소']=W[[아인슈타이늄 이리듐 프로트악티늄 세륨 몰리브데넘 프라세오디뮴 다름슈타튬]],
+    ['무지개색']=W[[남색 파란색 빨간색 노란색]],
+    ['북아메리카']=W[[세인트빈센트그레나딘 세인트키츠네비스 트리니다드토바고]],
+    ['포유류']=W[[태즈메이니아데빌 아프리카코끼리]],
+    ['라면 재료']=W[[새송이버섯 느타리버섯]],
+    ['군사 계급']=W[[일등병 상등병]],
+    ['캠핑용품']=W[[두루마리휴지 숯 아이스박스 보조배터리]],
+    ['햄버거 재료']=W[[타르타르소스 치즈 홀그레인머스타드 모짜렐라치즈]],
+    ['관악기']=W[[오카리나 소프라노색소폰 베이스클라리넷 리코더]],
+    ['국내 섬']=W[[좌사리제도 독도 고군산군도 격렬비열도 제주도 십이동파도]],
+    ['별자리']=W[[카시오페이아자리 황소자리 공기펌프자리 안드로메다자리]],
+    ['튀김']=W[[후라이드치킨 새우튀김 오징어튀김 아스파라거스튀김]],
+    ['아시아']=W[[키르기스스탄 투르크메니스탄 대한민국 사우디아라비아]],
+}
+mergeWords(videoWords)
+-- Other visible topics have no clear successful answer rows in this recording.
+-- Keep their names available; do not promote failed attempts to verified words.
+for _,name in ipairs({'중국집','욕실용품','게이름'}) do bank[name]=bank[name] or {} end
+
+local deletedTopics={}
 local savePath='WordStackHub_CustomWords.json'
+
 local function saveWords()
     if type(writefile)~='function' then return false end
-    local ok=pcall(function() writefile(savePath,HttpService:JSONEncode(bank)) end)
+    local basic={}
+    for category,list in pairs(bank) do
+        if category~='훈민정음' and category~='끝말잇기' and category~='한방 단어' then basic[category]=list end
+    end
+    local ok=pcall(function() writefile(savePath,HttpService:JSONEncode({version=3,deletedTopics=deletedTopics,modes={basic=basic,hunmin=bank['훈민정음'],chain={long=bank['끝말잇기'],oneShot=bank['한방 단어'] or {}}}})) end)
     return ok
 end
 if type(readfile)=='function' and type(isfile)=='function' then
@@ -414,13 +457,27 @@ if type(readfile)=='function' and type(isfile)=='function' then
         if isfile(savePath) then
             local data=HttpService:JSONDecode(readfile(savePath))
             if type(data)=='table' then
-                for category,list in pairs(data) do
+                local sources=data
+                if (data.version==2 or data.version==3) and type(data.modes)=='table' then
+                    if type(data.deletedTopics)=='table' then
+                        for key,removed in pairs(data.deletedTopics) do
+                            if type(key)=='string' and removed==true then deletedTopics[key]=true end
+                        end
+                    end
+                    sources={}
+                    for category,list in pairs(data.modes.basic or {}) do sources[category]=list end
+                    sources['훈민정음']=data.modes.hunmin or {}
+                    local chain=data.modes.chain or {}
+                    sources['끝말잇기']=chain.long or {}
+                    sources['한방 단어']=chain.oneShot or {}
+                end
+                for category,list in pairs(sources) do
                     if type(category)=='string' and type(list)=='table' then
                         bank[category]=bank[category] or {}
                         local seen={}
                         for _,old in ipairs(bank[category]) do seen[old]=true end
                         for _,word in ipairs(list) do
-                            if type(word)=='string' and utf8.len(word) and utf8.len(word)>=1 and utf8.len(word)<=30 then
+                            if type(word)=='string' and utf8.len(word) and utf8.len(word)>=1 and utf8.len(word)<=40 then
                                 if not seen[word] then
                                     table.insert(bank[category],word)
                                     seen[word]=true
@@ -441,6 +498,8 @@ local hunminInterval,chainInterval,autoDetect=1,1,true
 local manualTopic=nil
 local submitMethod='초록 버튼'
 local draftCategory,draftWord='',''
+local draftMode,draftChainStyle='기본','긴 단어'
+local similarTopics=true
 local chosung={'ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'}
 local function letters(word)
     local list={}
@@ -472,9 +531,7 @@ local function addHunmin(word)
     for _,old in ipairs(list) do if old==word then return end end
     table.insert(list,word)
 end
-for _,list in pairs(bank) do
-    for _,word in ipairs(list) do addHunmin(word) end
-end
+for _,word in ipairs(bank['훈민정음']) do addHunmin(word) end
 local function lastSyllable(word)
     local list=letters(word)
     return list[#list] and utf8.char(list[#list]) or ''
@@ -495,31 +552,120 @@ local function displayText(label)
     return (raw:gsub('<[^>]->',''):match('^%s*(.-)%s*$'))
 end
 
--- Basic mode word pool: exact topic first, then the closest known topic name
+-- Topic deletion is saved independently of built-ins, so removed topics stay removed.
+local function reservedTopic(name)
+    local key=topicKey(name)
+    return key=='훈민정음' or key=='끝말잇기' or key=='한방단어'
+end
+for name in pairs(bank) do
+    if not reservedTopic(name) and deletedTopics[topicKey(name):lower()] then bank[name]=nil end
+end
+local refreshTopicList=function() end
+local lastRemoved=nil
+local function resetTopicState()
+    topic=nil;manualTopic=nil;used={}
+end
+local function createTopic(value)
+    local name=tostring(value or ''):match('^%s*(.-)%s*$')
+    local key=topicKey(name):lower()
+    local good,length=pcall(utf8.len,name)
+    if key=='' or not good or not length or length>40 then return nil,'주제는 1~40글자로 입력하세요' end
+    if reservedTopic(name) then return nil,'훈민정음·끝말잇기는 단어 추가에서 관리하세요' end
+    for old in pairs(bank) do
+        if topicKey(old):lower()==key then return old,'이미 있는 주제입니다' end
+    end
+    bank[name]={};deletedTopics[key]=nil
+    refreshTopicList()
+    return name
+end
+local function removeTopic(value)
+    local key=topicKey(value):lower()
+    if reservedTopic(value) then return false,'모드 사전은 주제 관리에서 삭제할 수 없습니다' end
+    local removed={}
+    for name,list in pairs(bank) do
+        if topicKey(name):lower()==key then removed[name]=list end
+    end
+    if not next(removed) then return false,'삭제할 주제를 목록에서 선택하세요' end
+    for name in pairs(removed) do bank[name]=nil end
+    deletedTopics[key]=true;lastRemoved={key=key,topics=removed}
+    resetTopicState();refreshTopicList()
+    return true
+end
+local function undoRemoveTopic()
+    if not lastRemoved then return false end
+    for name,list in pairs(lastRemoved.topics) do
+        bank[name]=bank[name] or {}
+        local seen={}
+        for _,word in ipairs(bank[name]) do seen[word]=true end
+        for _,word in ipairs(list) do if not seen[word] then table.insert(bank[name],word);seen[word]=true end end
+    end
+    deletedTopics[lastRemoved.key]=nil;lastRemoved=nil
+    resetTopicState();refreshTopicList()
+    return true
+end
+-- Explicit semantic families. No unrestricted substring matching.
+local topicFamilies={
+    {'자동차','자동차 브랜드','자동차브랜드','자동차 브랜드명','자동차 회사','자동차회사','자동차 모델','자동차모델','차종'},
+    {'치킨집','치킨 브랜드','치킨브랜드','치킨 프랜차이즈'},
+    {'세계 수도','세계수도','나라 수도','각국 수도','수도'},
+    {'무지개색','무지개 색','무지개 색깔','무지개색깔'},
+    {'KBO','KBO 한국프로야구','한국프로야구','프로야구 구단'},
+    {'원소','주기율표','화학 원소'},
+    {'라면재료','라면 재료'},
+    {'군사계급','군사 계급','군대 계급'},
+    {'캠핑용품','캠핑 용품'},
+    {'햄버거재료','햄버거 재료'},
+    {'국내섬','국내 섬','한국의 섬'},
+    {'욕실용품','욕실 용품'},
+    {'SNS','소셜미디어','소셜 네트워크'},
+    {'교통수단','탈것'},
+    {'커피 브랜드','커피브랜드','카페 브랜드','카페브랜드','커피전문점'},
+    {'과목','초중고 과목','학교 과목','교과목'},
+}
+local topicPeers={}
+for _,family in ipairs(topicFamilies) do
+    for _,name in ipairs(family) do
+        local key=topicKey(name):lower()
+        topicPeers[key]=topicPeers[key] or {}
+        for _,peer in ipairs(family) do topicPeers[key][topicKey(peer):lower()]=true end
+    end
+end
 local function topicWords()
     if not topic then return nil end
-    local list=bank[topic]
-    if list and #list>0 then return list end
     local key=topicKey(topic):lower()
-    local bestName,bestLength=nil,0
-    for name,words in pairs(bank) do
-        if #words>0 then
-            local nameKey=topicKey(name):lower()
-            local length=utf8.len(nameKey) or 0
-            if length>=2 and (key:find(nameKey,1,true) or nameKey:find(key,1,true)) and length>bestLength then
-                bestName,bestLength=name,length
+    if deletedTopics[key] then return {} end
+    local peers=similarTopics and topicPeers[key] or nil
+    local output,seen={},{}
+    for name,list in pairs(bank) do
+        local nameKey=topicKey(name):lower()
+        if nameKey==key or (peers and peers[nameKey]) then
+            if name~='훈민정음' and name~='끝말잇기' and name~='한방 단어' then
+                for _,word in ipairs(list) do
+                    if not seen[word] then seen[word]=true;table.insert(output,word) end
+                end
             end
         end
     end
-    return bestName and bank[bestName] or list
+    return output
 end
 local function choose()
-    local pool,longest={},0
     local list=topicWords()
     if not list then return nil end
-    for _,word in ipairs(list) do
+    local candidates={}
+    for _,word in ipairs(list) do if not used[word] then candidates[word]=true end end
+    local key=topicKey(topic):lower()
+    local peers=similarTopics and topicPeers[key] or nil
+    local preferred={}
+    for name,words in pairs(videoWords) do
+        local nameKey=topicKey(name):lower()
+        if nameKey==key or (peers and peers[nameKey]) then
+            for _,word in ipairs(words) do if candidates[word] then preferred[word]=true end end
+        end
+    end
+    local pool,longest={},0
+    for word in pairs(next(preferred) and preferred or candidates) do
         local length=utf8.len(word)
-        if length and not used[word] then
+        if length then
             if length>longest then pool={word};longest=length
             elseif length==longest then table.insert(pool,word) end
         end
@@ -700,6 +846,7 @@ local function layoutTopic(label)
     for name in pairs(bank) do
         if topicKey(name):lower()==topicKey(text):lower() then return text,0 end
     end
+    if topicPeers[topicKey(text):lower()] then return text,0 end
     return nil
 end
 local pendingSource,pendingTopic,pendingSince=nil,nil,0
@@ -729,7 +876,7 @@ local function detectTopic()
                 for _,term in ipairs(blockedNames) do
                     if key:find(term,1,true) then blocked=true;break end
                 end
-                if length and length>=1 and length<=40 and not blocked then
+                if length and length>=1 and length<=40 and not blocked and not deletedTopics[key] then
                     local name=normalized[key] or value
                     local size=label.TextBounds.Y
                     if not best or evidence>best.evidence
@@ -910,13 +1057,14 @@ local function setEnabled(value)
     status(value and '자동 입력 켜짐 · 게임 화면 감지 중' or '자동 입력 꺼짐')
 end
 BasicTab:CreateSection('자동 주제 인식')
+BasicTab:CreateParagraph({Title='영상에서 확인한 단어',Content='1950.mp4의 성공 답안 목록을 반영했습니다. 같은 주제에서는 영상에서 성공한 미사용 단어를 먼저 선택하고, 없으면 기존 후보를 사용합니다. 영상 속 욕실용품의 트리트먼트는 성공 단어로 등록하지 않았습니다.'})
 statusLabel=BasicTab:CreateLabel('상태: 자동 입력 꺼짐')
 BasicTab:CreateToggle({Name='자동 입력',CurrentValue=false,Flag='AutoTypeV2',Callback=setEnabled})
 BasicTab:CreateButton({Name='단어 한 번 입력',Callback=function()
     local success,err=pcall(attempt)
     if not success then status('오류: '..tostring(err)) end
 end})
-BasicTab:CreateParagraph({Title='주제 구분',Content='주제 표시와 플레이어 답안을 따로 읽습니다. 랭킹·돈·채팅은 주제에서 제외합니다. 단어가 없는 주제는 단어 추가 탭에서 등록하세요.'})
+BasicTab:CreateParagraph({Title='주제 구분',Content='주제와 플레이어 답안을 따로 읽습니다. 자동차·자동차 브랜드 등 지정된 유사 주제는 단어를 공유합니다. 랭킹·돈·채팅은 주제에서 제외합니다.'})
 HunminTab:CreateSection('초성 두 글자')
 HunminTab:CreateButton({Name='훈민정음 모드 사용',Callback=function() switchMode('훈민정음') end})
 HunminTab:CreateInput({Name='초성 보조 입력',PlaceholderText='예: ㄱㅅ',RemoveTextAfterFocusLost=false,Callback=function(value)
@@ -945,27 +1093,108 @@ SettingsTab:CreateDropdown({Name='제출 방식',Options={'초록 버튼','Enter
     submitMethod=type(value)=='table' and value[1] or value
 end})
 SettingsTab:CreateButton({Name='사용한 단어 초기화',Callback=function() used={};status('사용한 단어 초기화 완료') end})
-Words:CreateInput({Name='등록할 주제',PlaceholderText='예: 치즈',RemoveTextAfterFocusLost=false,Callback=function(value) draftCategory=value:match('^%s*(.-)%s*$') end})
-Words:CreateInput({Name='추가할 단어',PlaceholderText='쉼표 또는 줄바꿈으로 구분',RemoveTextAfterFocusLost=false,Callback=function(value) draftWord=value end})
-Words:CreateButton({Name='단어 추가 및 저장',Callback=function()
-    if draftCategory=='' then notify('단어 추가','주제를 먼저 입력하세요');return end
-    bank[draftCategory]=bank[draftCategory] or {}
+SettingsTab:CreateToggle({Name='비슷한 주제 단어 공유',CurrentValue=true,Flag='SimilarTopicsV3',Callback=function(value) similarTopics=value end})
+local function addModeWords(mode,category,text,style)
+    local target=mode=='훈민정음' and '훈민정음'
+        or (mode=='끝말잇기' and (style=='한방 단어' and '한방 단어' or '끝말잇기')) or category
+    if not target or target=='' then return 0,0,'기본 모드의 주제를 입력하세요' end
+    if mode=='기본' and (target=='훈민정음' or target=='끝말잇기' or target=='한방 단어') then
+        return 0,0,'이 단어는 해당 모드를 선택해 등록하세요'
+    end
+    if mode=='기본' then
+        local name,reason=createTopic(target)
+        if not name then return 0,0,reason end
+        target=name
+    end
+    bank[target]=bank[target] or {}
     local seen={}
-    for _,word in ipairs(bank[draftCategory]) do seen[word]=true end
-    local count=0
-    for candidate in draftWord:gmatch('[^,\r\n]+') do
+    for _,word in ipairs(bank[target]) do seen[word]=true end
+    local count,rejected=0,0
+    for candidate in text:gmatch('[^,;\r\n]+') do
         local word=candidate:match('^%s*(.-)%s*$')
         local length=utf8.len(word)
-        if length and length>=1 and length<=40 and not seen[word] then
-            table.insert(bank[draftCategory],word);seen[word]=true;addHunmin(word);count=count+1
+        local valid=length and length>=1 and length<=40
+        if mode=='훈민정음' then valid=valid and length==2 and onlySyllables(word) end
+        if mode=='끝말잇기' then
+            valid=valid and onlySyllables(word) and length>=(style=='한방 단어' and 2 or 4)
+        end
+        if not valid then rejected=rejected+1
+        elseif not seen[word] then
+            table.insert(bank[target],word);seen[word]=true;count=count+1
+            if mode=='훈민정음' then addHunmin(word)
+            elseif mode=='끝말잇기' and style=='한방 단어' then table.insert(oneShots,word) end
         end
     end
+    if mode=='기본' then refreshTopicList() end
+    return count,rejected
+end
+Words:CreateSection('세 가지 모드별 단어 등록')
+Words:CreateDropdown({Name='단어를 추가할 모드',Options={'기본','훈민정음','끝말잇기'},CurrentOption={'기본'},MultipleOptions=false,Flag='WordAddModeV3',Callback=function(value)
+    draftMode=type(value)=='table' and value[1] or value
+end})
+Words:CreateInput({Name='기본 모드 주제',PlaceholderText='기본 모드에만 필요 · 예: 자동차 브랜드',RemoveTextAfterFocusLost=false,Callback=function(value) draftCategory=value:match('^%s*(.-)%s*$') end})
+Words:CreateDropdown({Name='끝말잇기 단어 종류',Options={'긴 단어','한방 단어'},CurrentOption={'긴 단어'},MultipleOptions=false,Flag='WordAddChainV3',Callback=function(value)
+    draftChainStyle=type(value)=='table' and value[1] or value
+end})
+Words:CreateInput({Name='추가할 단어',PlaceholderText='쉼표 또는 줄바꿈으로 구분',RemoveTextAfterFocusLost=false,Callback=function(value) draftWord=value end})
+Words:CreateParagraph({Title='모드별 저장',Content='기본: 주제별 단어 / 훈민정음: 두 글자 한글 단어, 초성 자동 분류 / 끝말잇기: 긴 단어(4글자 이상)·한방 단어를 따로 저장합니다. 비슷한 주제 공유는 스크립트의 후보 선택 기능이며 서버 허용을 보장하지 않습니다.'})
+Words:CreateButton({Name='선택한 모드에 추가 및 저장',Callback=function()
+    local count,rejected,reason=addModeWords(draftMode,draftCategory,draftWord,draftChainStyle)
+    if reason then notify('단어 추가',reason);return end
     local saved=saveWords()
-    notify('단어 추가',tostring(count)..'개 추가'..(saved and ' · 저장 완료' or ' · 현재 실행에 적용'))
+    notify('단어 추가',draftMode..' '..count..'개 추가 · 형식 제외 '..rejected..'개'..(saved and ' · 저장 완료' or ' · 현재 실행에 적용'))
 end})
 Words:CreateButton({Name='등록한 단어 저장',Callback=function()
     notify('저장',saveWords() and '저장 완료' or '이 실행 환경은 파일 저장을 지원하지 않습니다')
 end})
+-- Manage Basic-mode topics without having to edit the Lua file.
+local newTopicName,selectedTopic='',nil
+local topicListControl,topicSummary
+local function topicNames()
+    local names={}
+    for name in pairs(bank) do if not reservedTopic(name) then table.insert(names,name) end end
+    table.sort(names)
+    return names
+end
+local function showTopicSummary()
+    if topicSummary then
+        local list=selectedTopic and bank[selectedTopic]
+        topicSummary:Set(list and (selectedTopic..' · '..#list..'개 단어') or '목록에서 주제를 선택하세요')
+    end
+end
+refreshTopicList=function()
+    local names=topicNames()
+    if selectedTopic and not bank[selectedTopic] then selectedTopic=nil end
+    if topicListControl then topicListControl:Refresh(names,true) end
+    showTopicSummary()
+end
+TopicsTab:CreateSection('기본 모드 주제 관리')
+TopicsTab:CreateInput({Name='새 주제 이름',PlaceholderText='예: 과일 브랜드',RemoveTextAfterFocusLost=false,Callback=function(value) newTopicName=value end})
+TopicsTab:CreateButton({Name='주제 추가 및 저장',Callback=function()
+    local name,reason=createTopic(newTopicName)
+    if not name then notify('주제 추가',reason);return end
+    selectedTopic=name;showTopicSummary()
+    local saved=saveWords()
+    notify('주제 추가',name..' · '..(reason or '추가 완료')..(saved and ' · 저장 완료' or ' · 현재 실행에 적용'))
+end})
+topicListControl=TopicsTab:CreateDropdown({Name='등록된 주제 목록',Options=topicNames(),CurrentOption={},MultipleOptions=false,Flag='TopicManageSelectionV4',Callback=function(value)
+    selectedTopic=type(value)=='table' and value[1] or value
+    showTopicSummary()
+end})
+topicSummary=TopicsTab:CreateLabel('목록에서 주제를 선택하세요')
+TopicsTab:CreateButton({Name='선택한 주제 삭제 및 저장',Callback=function()
+    local name=selectedTopic
+    local success,reason=removeTopic(name or '')
+    if not success then notify('주제 삭제',reason);return end
+    local saved=saveWords()
+    notify('주제 삭제',name..' 삭제 완료'..(saved and ' · 저장 완료' or ' · 현재 실행에 적용'))
+end})
+TopicsTab:CreateButton({Name='마지막 주제 삭제 되돌리기',Callback=function()
+    if not undoRemoveTopic() then notify('복원','현재 실행에서 되돌릴 삭제가 없습니다');return end
+    local saved=saveWords()
+    notify('복원','주제와 단어 복원 완료'..(saved and ' · 저장 완료' or ' · 현재 실행에 적용'))
+end})
+TopicsTab:CreateParagraph({Title='사용 방법',Content='새 주제 이름 → 주제 추가. 삭제하려면 목록에서 선택 → 주제 삭제. 삭제하면 그 주제의 단어도 제외되며, 파일 저장을 지원하는 환경에서는 다음 실행에도 유지됩니다. 새 주제의 단어는 단어 추가 탭에서 기본 모드로 등록하세요.'})
 -- Restore settings only after every element exists. Never auto-start on reload.
 pcall(function() Rayfield:LoadConfiguration() end)
 enabled=false
