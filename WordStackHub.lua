@@ -610,6 +610,7 @@ local topicFamilies={
     {'세계 수도','세계수도','나라 수도','각국 수도','수도'},
     {'무지개색','무지개 색','무지개 색깔','무지개색깔'},
     {'KBO','KBO 한국프로야구','한국프로야구','프로야구 구단'},
+    {'소수','소수 1~100','소수1~100','1~100 소수','소수 1부터 100'},
     {'원소','주기율표','화학 원소'},
     {'라면재료','라면 재료'},
     {'군사계급','군사 계급','군대 계급'},
@@ -1165,28 +1166,69 @@ BasicTab:CreateButton({Name='단어 한 번 입력',Callback=function()
     if not success then status('오류: '..tostring(err)) end
 end})
 BasicTab:CreateParagraph({Title='주제 구분',Content='주제와 플레이어 답안을 따로 읽습니다. 자동차·자동차 브랜드 등 지정된 유사 주제는 단어를 공유합니다. 랭킹·돈·채팅은 주제에서 제외합니다.'})
-BasicTab:CreateButton({Name='감지 상태 진단',Callback=function()
-    detectTopic()
+BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=function()
+    local scanOK,scanError=pcall(detectTopic)
+    local input,inputReason=gameInput()
+    local lines={'WordStackHub diagnostic build 8',
+        'mode='..tostring(gameMode)..' enabled='..tostring(enabled)..' autoDetect='..tostring(autoDetect),
+        'topic='..tostring(topic)..' pending='..tostring(pendingTopic),
+        'scan='..tostring(scanOK)..' '..tostring(scanError),
+        'input='..(input and input:GetFullName() or tostring(inputReason))}
+    local active,waiting=roundReady()
+    table.insert(lines,'round='..tostring(active)..' '..tostring(waiting))
+    local function row(item)
+        local path=item:GetFullName()
+        local safe=path:lower()
+        for _,term in ipairs({'rayfield','textchat','bubblechat','chatwindow'}) do
+            if safe:find(term,1,true) then return end
+        end
+        local text=displayText(item):gsub('\n',' / '):sub(1,200)
+        if text=='' and not item:IsA('TextBox') then return end
+        local layer=item:FindFirstAncestorWhichIsA('LayerCollector')
+        local value,evidence=topicEvidence(item)
+        if not value then value,evidence=worldTopic(item) end
+        if not value then value,evidence=layoutTopic(item) end
+        local pos,size=item.AbsolutePosition,item.AbsoluteSize
+        table.insert(lines,path..' | '..item.ClassName..' | text='..text
+            ..' | visible='..tostring(item.Visible)..' eligible='..tostring(topicDisplayVisible(item))
+            ..' | layer='..(layer and layer.ClassName or 'none')
+            ..' | position='..math.floor(pos.X)..','..math.floor(pos.Y)
+            ..' | size='..math.floor(size.X)..','..math.floor(size.Y)
+            ..' | candidate='..tostring(value)..' evidence='..tostring(evidence))
+    end
+    -- Record all game text, including rejected candidates. The old eight-known-word
+    -- popup hid exactly the evidence needed to diagnose a failed title match.
     local gui=player:FindFirstChildOfClass('PlayerGui')
-    local lines={'현재 주제: '..tostring(topic),'화면 UI가 다른 창에 덮여도 Text 값을 직접 읽습니다.'}
     local count=0
-    for label in pairs(topicLabels) do
-        if label.Parent then
-            local value=displayText(label)
-            local key=topicKey(value):lower()
-            local known=false
-            for name in pairs(bank) do if topicKey(name):lower()==key then known=true;break end end
-            if known and count<8 then
-                count=count+1
-                local good=topicDisplayVisible(label)
-                table.insert(lines,value..' | '..label.ClassName..' | '..(good and '읽기 가능' or 'UI 필터 제외')..' | '..label:GetFullName())
+    if gui then
+        for _,item in ipairs(gui:GetDescendants()) do
+            if item:IsA('TextLabel') or item:IsA('TextButton') or item:IsA('TextBox') then
+                local ok,err=pcall(row,item)
+                if not ok then table.insert(lines,item:GetFullName()..' | read error='..tostring(err)) end
+                count=count+1;if count>=300 then table.insert(lines,'UI scan truncated at 300');break end
             end
         end
     end
-    local input,reason=gameInput()
-    table.insert(lines,'입력창: '..(input and input:GetFullName() or (reason or '없음')))
-    if pendingSource then table.insert(lines,'주제 후보 경로: '..pendingSource:GetFullName()) end
-    notify('감지 진단',table.concat(lines,'\n'))
+    local tower=workspace:FindFirstChild('TowerClient')
+    if tower then
+        count=0
+        for _,item in ipairs(tower:GetDescendants()) do
+            if item:IsA('TextLabel') and item:GetFullName():find('.Cat',1,true) then
+                pcall(row,item);count=count+1
+                if count>=120 then table.insert(lines,'World scan truncated at 120');break end
+            end
+        end
+    end
+    local report=table.concat(lines,'\n')
+    local copied=false
+    if type(setclipboard)=='function' then copied=pcall(setclipboard,report) end
+    local saved=false
+    if type(writefile)=='function' then saved=pcall(writefile,'WordStackHub_Diagnostic.txt',report) end
+    print(report)
+    notify('감지 진단 v8','현재 주제: '..tostring(topic)..'\n'
+        ..(copied and '전체 보고서가 복사됐어요. 채팅에 붙여넣어 주세요.'
+            or saved and 'WordStackHub_Diagnostic.txt 저장 완료. 파일을 보내주세요.'
+            or '전체 보고서를 실행기 콘솔에 표시했습니다.'))
 end})
 HunminTab:CreateSection('초성 두 글자')
 HunminTab:CreateButton({Name='훈민정음 모드 사용',Callback=function() switchMode('훈민정음') end})
@@ -1321,7 +1363,7 @@ TopicsTab:CreateParagraph({Title='사용 방법',Content='새 주제 이름 → 
 -- Restore settings only after every element exists. Never auto-start on reload.
 pcall(function() Rayfield:LoadConfiguration() end)
 enabled=false
-status('준비 완료 · 기본 탭에서 자동 입력을 켜세요')
+status('v8 준비 완료 · 기본 탭에서 자동 입력을 켜세요')
 notify('복구 완료','탭 내용과 자동 입력 실행부를 복구했습니다.')
 task.spawn(function()
     local lastAttempt=0
