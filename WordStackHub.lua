@@ -930,6 +930,140 @@ local function layoutTopic(label)
     if topicPeers[topicKey(text):lower()] then return text,anchored and 4 or 0 end
     return nil
 end
+-- Fallback when the strict rules find nothing. Reads the biggest known-topic text in the
+-- top-center band of the screen and skips the layer/clip filters that can reject the real header.
+local function looseTopic(normalized)
+    local camera=workspace.CurrentCamera
+    if not camera then return nil end
+    local view=camera.ViewportSize
+    local best,ambiguous=nil,false
+    for label in pairs(topicLabels) do
+        if label.Parent and label:IsA('GuiObject') then
+            local layer=label:FindFirstAncestorWhichIsA('LayerCollector')
+            if layer and layer:IsA('ScreenGui') and layer.Enabled then
+                local pos,size=label.AbsolutePosition,label.AbsoluteSize
+                local center=pos+size/2
+                if size.X>0 and size.Y>0 and center.Y>=0 and center.Y<=view.Y*0.45
+                    and math.abs(center.X-view.X/2)<=view.X*0.3 then
+                    local text=displayText(label)
+                    local key=topicKey(text):lower()
+                    local name=normalized[key]
+                    if not name and topicPeers[key] then name=text end
+                    if name and not deletedTopics[key] then
+                        local hidden=false
+                        local node=label
+                        while node and node~=layer do
+                            if node:IsA('GuiObject') and not node.Visible then hidden=true;break end
+                            node=node.Parent
+                        end
+                        local path=label:GetFullName():lower()
+                        for _,term in ipairs({'rayfield','textchat','chatwindow','bubblechat','leaderboard','playerlist'}) do
+                            if path:find(term,1,true) then hidden=true;break end
+                        end
+                        if not hidden then
+                            local height=label.TextBounds.Y
+                            if not best or height>best.size+0.5 then
+                                best={label=label,name=name,evidence=1,size=height};ambiguous=false
+                            elseif math.abs(height-best.size)<=0.5 and name~=best.name then
+                                ambiguous=true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if ambiguous then return nil end
+    return best
+end
+-- Direct header binding: select a real GUI text object once, then follow its path.
+-- This reads Text properties; it is not screenshot OCR and does not infer a title from answers.
+local boundHeader,boundDescriptor=nil,nil
+local bindArmedUntil,bindArmedAfter=0,0
+local bindingMessage='주제 표시를 한 번 연결하세요'
+local bindingPath='WordStackHub_TopicSource.json'
+local function bindingRoot(kind)
+    if kind=='PlayerGui' then return player:FindFirstChildOfClass('PlayerGui') end
+    if kind=='CoreGui' then
+        local ok,root=pcall(function() return game:GetService('CoreGui') end)
+        if ok then return root end
+    end
+end
+local function resolveBoundHeader()
+    if boundHeader and boundHeader.Parent then return boundHeader end
+    if not boundDescriptor then return nil end
+    local node=bindingRoot(boundDescriptor.root)
+    for _,name in ipairs(boundDescriptor.path) do
+        node=node and node:FindFirstChild(name)
+        if not node then return nil end
+    end
+    if node and (node:IsA('TextLabel') or node:IsA('TextButton') or node:IsA('TextBox')) then boundHeader=node;return node end
+end
+local function readHeaderText(item)
+    local raw=tostring(item.Text or ''):gsub('<[^>]->',''):match('^%s*(.-)%s*$')
+    -- Read the actual Text value first; diagnostic ContentText can lag animations.
+    local text=explicitTopic(raw) or raw
+    text=text:gsub('%s*#%d+%s*$',''):match('^%s*(.-)%s*$')
+    local length=utf8.len(text)
+    if not length or length<1 or length>40 or topicMarker(text) or text:match('^%d+$') then return nil end
+    for _,term in ipairs({'제한시간','종료','시작될','투표','클릭하여','입력하세요','남은 시간'}) do
+        if text:find(term,1,true) then return nil end
+    end
+    return text
+end
+local function attachHeader(item,root,kind)
+    if item:IsA('TextBox') and item.TextEditable~=false then return false end
+    if not topicDisplayVisible(item) or not readHeaderText(item) then return false end
+    local path,node={},item
+    while node and node~=root do table.insert(path,1,node.Name);node=node.Parent end
+    if node~=root then return false end
+    boundHeader=item;boundDescriptor={root=kind,path=path}
+    manualTopic=nil;autoDetect=true;topic=nil;used={}
+    bindingMessage='연결됨: '..table.concat(path,'.')
+    if type(writefile)=='function' then pcall(function() writefile(bindingPath,HttpService:JSONEncode(boundDescriptor)) end) end
+    return true
+end
+if type(readfile)=='function' and type(isfile)=='function' then
+    pcall(function()
+        if isfile(bindingPath) then
+            local data=HttpService:JSONDecode(readfile(bindingPath))
+            if type(data)=='table' and (data.root=='PlayerGui' or data.root=='CoreGui') and type(data.path)=='table' and #data.path>0 and #data.path<40 then
+                for _,name in ipairs(data.path) do if type(name)~='string' then return end end
+                boundDescriptor=data;bindingMessage='저장된 주제 표시 연결 대기 중'
+            end
+        end
+    end)
+end
+local inputService=game:GetService('UserInputService')
+if inputService.InputBegan then
+    table.insert(session.connections,inputService.InputBegan:Connect(function(input)
+        if not session.active or os.clock()<bindArmedAfter or os.clock()>bindArmedUntil then return end
+        if input.UserInputType~=Enum.UserInputType.Touch and input.UserInputType~=Enum.UserInputType.MouseButton1 then return end
+        local found={}
+        for _,kind in ipairs({'PlayerGui','CoreGui'}) do
+            local root=bindingRoot(kind)
+            if root then
+                local ok,objects=pcall(function() return root:GetGuiObjectsAtPosition(input.Position.X,input.Position.Y) end)
+                if ok then
+                    for _,item in ipairs(objects) do
+                        if (item:IsA('TextLabel') or item:IsA('TextButton') or item:IsA('TextBox')) and topicDisplayVisible(item) and readHeaderText(item) then
+                            local height=item.TextBounds.Y
+                            table.insert(found,{item=item,root=root,kind=kind,height=height})
+                        end
+                    end
+                end
+            end
+        end
+        table.sort(found,function(a,b) return a.height>b.height end)
+        if found[1] and attachHeader(found[1].item,found[1].root,found[1].kind) then
+            bindArmedUntil=0
+            notify('주제 표시 연결','연결 완료: '..tostring(readHeaderText(found[1].item))..' · 이후 주제 변경을 자동으로 읽습니다.')
+        else
+            bindingMessage='누른 위치에서 읽을 수 있는 주제 텍스트를 찾지 못했습니다'
+            notify('연결되지 않음','주제 글자를 직접 눌러주세요. 이미지로 그려진 글자는 이 방식으로 읽을 수 없습니다.')
+        end
+    end))
+end
 local pendingSource,pendingTopic,pendingSince=nil,nil,0
 local function detectTopic()
     if gameMode~='기본' then return true end
@@ -939,6 +1073,20 @@ local function detectTopic()
         return true
     end
     if not autoDetect then return topic~=nil end
+    if boundDescriptor then
+        local header=resolveBoundHeader()
+        local value=header and topicDisplayVisible(header) and readHeaderText(header)
+        if not value then topic=nil;return false end
+        if deletedTopics[topicKey(value):lower()] then topic=nil;return false end
+        if pendingTopic~=value then
+            pendingSource,pendingTopic,pendingSince=header,value,os.clock()
+            topic=nil;return false
+        end
+        if os.clock()-pendingSince<0.12 then return false end
+        bindingMessage='화면 주제: '..value
+        if topic~=value then topic=value;used={};notify('화면 주제 인식',value) end
+        return true
+    end
     local gui=player:FindFirstChildOfClass('PlayerGui')
     if gui and gui~=watchedGui then watchedGui=gui;watchTopics(gui) end
     if not watchedWorld then watchedWorld=true;watchTopics(workspace) end
@@ -974,6 +1122,7 @@ local function detectTopic()
             end
         end
     end
+    -- Unbound loose matching can mistake an answer chip for the header; keep strict evidence only.
     if not best or ambiguous then
         pendingSource,pendingTopic=nil,nil
         topic=nil
@@ -996,7 +1145,7 @@ local function nextWord()
     if gameMode=='끝말잇기' then return chooseChain() end
     if manualTopic or autoDetect then
         if not detectTopic() then
-            return nil,'화면 주제 감지 대기 중 · 입력창 위의 주제 표시 확인','waiting'
+            return nil,'화면 주제 대기 · '..bindingMessage,'waiting'
         end
     end
     if not topic then return nil,'주제를 고르거나 설정에서 자동 감지를 켜세요.' end
@@ -1029,17 +1178,18 @@ local function gameInput()
         end
     end
     if #candidates==1 then return candidates[1] end
-    -- Never type into an arbitrary chat/settings box when multiple boxes exist.
-    local best
+    if #candidates==0 then return nil,'단어 입력창을 찾는 중' end
+    -- Several visible boxes: prefer one that hints at a word entry, then the widest.
+    local best,bestScore
     for _,box in ipairs(candidates) do
         local hint=(box.Name..' '..box.PlaceholderText):lower()
-        if hint:find('단어',1,true) or hint:find('word',1,true)
-            or hint:find('정답',1,true) then
-            if best then return nil,'단어 입력창이 여러 개입니다' end
-            best=box
+        local score=box.AbsoluteSize.X
+        for _,term in ipairs({'단어','word','정답','answer','입력','클릭'}) do
+            if hint:find(term,1,true) then score=score+1000 end
         end
+        if not bestScore or score>bestScore then best,bestScore=box,score end
     end
-    return best,best and nil or '단어 입력창을 찾는 중'
+    return best
 end
 local function roundReady()
     local box,reason=gameInput()
@@ -1063,29 +1213,87 @@ local function roundReady()
     end
     return true
 end
+local function looksGreen(color)
+    return color.G>color.R*1.25 and color.G>color.B*1.1
+end
 local function submitButton(box)
     local screen=box:FindFirstAncestorOfClass('ScreenGui')
     if not screen then return nil end
-    local best,bestDistance=nil,math.huge
-    local boxCenter=box.AbsolutePosition+box.AbsoluteSize/2
+    local boxPos,boxSize=box.AbsolutePosition,box.AbsoluteSize
+    local boxCenter=boxPos+boxSize/2
+    local reach=math.max(boxSize.X*1.6,220)
+    local best,bestScore=nil,-math.huge
     for _,item in ipairs(screen:GetDescendants()) do
         if item:IsA('GuiButton') and topicDisplayVisible(item,'input') then
             local text=item:IsA('TextButton') and displayText(item) or ''
             local key=(item.Name..' '..text):lower()
-            local green=item.BackgroundColor3
             local named=key:find('제출',1,true) or key:find('입력',1,true)
                 or key:find('확인',1,true) or key:find('submit',1,true)
                 or key:find('enter',1,true) or key:find('send',1,true)
-            local colored=green.G>green.R*1.25 and green.G>green.B*1.1
+            local colored=looksGreen(item.BackgroundColor3)
             local center=item.AbsolutePosition+item.AbsoluteSize/2
             local distance=(center-boxCenter).Magnitude
-            if (named or colored) and distance<bestDistance
-                and distance<math.max(box.AbsoluteSize.X*1.5,180) then
-                best,bestDistance=item,distance
+            local toRight=center.X>=boxPos.X+boxSize.X*0.6 and math.abs(center.Y-boxCenter.Y)<=boxSize.Y
+            if distance<reach and (named or colored or toRight) then
+                local score=-distance+(named and 150 or 0)+(colored and 250 or 0)+(toRight and 100 or 0)
+                if score>bestScore then best,bestScore=item,score end
+            end
+        end
+    end
+    if best then return best end
+    -- The arrow may be a plain frame/image instead of a button.
+    for _,item in ipairs(screen:GetDescendants()) do
+        if item:IsA('GuiObject') and not item:IsA('TextBox') and item.BackgroundTransparency<1
+            and looksGreen(item.BackgroundColor3) and topicDisplayVisible(item,'input') then
+            local center=item.AbsolutePosition+item.AbsoluteSize/2
+            local distance=(center-boxCenter).Magnitude
+            local toRight=center.X>=boxPos.X+boxSize.X*0.6 and math.abs(center.Y-boxCenter.Y)<=boxSize.Y
+            if distance<reach and toRight and item.AbsoluteSize.X>=20 and item.AbsoluteSize.Y>=20 then
+                if -distance>bestScore then best,bestScore=item,-distance end
             end
         end
     end
     return best
+end
+-- Fire a button event through whatever the executor supports.
+local function fireEvent(button,eventName)
+    local signal=button[eventName]
+    local count
+    if type(getconnections)=='function' then
+        local okList,list=pcall(getconnections,signal)
+        if okList and type(list)=='table' then count=#list end
+    end
+    if count==0 then return false end
+    if type(firesignal)=='function' and pcall(firesignal,signal) then return true end
+    if count and count>0 then
+        local fired=false
+        for _,connection in ipairs(getconnections(signal)) do
+            if pcall(function() connection:Fire() end) then fired=true end
+        end
+        return fired
+    end
+    return false
+end
+-- Last resort: a real click at the button's screen position. The Hub window is hidden for
+-- a moment because it can sit on top of the game's arrow.
+local function virtualClick(item)
+    local okService,input=pcall(function() return game:GetService('VirtualInputManager') end)
+    if not okService or not input then return false end
+    local layer=item:FindFirstAncestorWhichIsA('ScreenGui')
+    local inset=(layer and layer.IgnoreGuiInset) and Vector2.new(0,0) or GuiService:GetGuiInset()
+    local center=item.AbsolutePosition+item.AbsoluteSize/2+inset
+    local wasVisible=true
+    pcall(function() wasVisible=Rayfield:IsVisible() end)
+    if wasVisible then pcall(function() Rayfield:SetVisibility(false) end) end
+    task.wait(0.08)
+    local clicked=pcall(function()
+        input:SendMouseButtonEvent(center.X,center.Y,0,true,game,0)
+        task.wait(0.05)
+        input:SendMouseButtonEvent(center.X,center.Y,0,false,game,0)
+    end)
+    task.wait(0.05)
+    if wasVisible then pcall(function() Rayfield:SetVisibility(true) end) end
+    return clicked
 end
 local function sendWord(word)
     if inputMode=='채팅' then
@@ -1099,16 +1307,27 @@ local function sendWord(word)
     if not box then return false,reason end
     local button=submitMethod=='초록 버튼' and submitButton(box) or nil
     if submitMethod=='초록 버튼' and not button then return false,'제출 버튼을 찾는 중' end
-    if type(firesignal)~='function' then
-        return false,'이 실행 환경은 입력 이벤트를 지원하지 않습니다'
-    end
     box.Text=word
+    task.wait(0.05)
     if button then
-        firesignal(button.Activated)
-    else
-        firesignal(box.FocusLost,true)
+        if button:IsA('GuiButton')
+            and (fireEvent(button,'Activated') or fireEvent(button,'MouseButton1Click')) then
+            return true
+        end
+        if virtualClick(button) then return true end
+        return false,'제출 버튼 클릭 실패 · 실행 환경이 클릭 이벤트를 지원하지 않습니다'
     end
-    return true
+    local fired=false
+    if type(firesignal)=='function' then fired=pcall(firesignal,box.FocusLost,true) end
+    if not fired then
+        fired=pcall(function()
+            box:CaptureFocus()
+            task.wait(0.05)
+            box.Text=word
+            box:ReleaseFocus(true)
+        end)
+    end
+    return fired,fired and nil or 'Enter 제출 실패'
 end
 local function attempt()
     local ready,waiting=roundReady()
@@ -1165,8 +1384,67 @@ local function setEnabled(value)
     status(value and '자동 입력 켜짐 · 게임 화면 감지 중' or '자동 입력 꺼짐')
 end
 BasicTab:CreateSection('자동 주제 인식')
+BasicTab:CreateButton({Name='화면 주제 표시 연결 (한 번 터치)',Callback=function()
+    if not inputService.InputBegan then notify('연결 불가','입력 이벤트를 사용할 수 없습니다');return end
+    bindArmedAfter=os.clock()+0.5;bindArmedUntil=os.clock()+20
+    bindingMessage='20초 안에 게임의 주제 글자를 눌러주세요'
+    notify('주제 표시 선택','Hub를 옆으로 옮긴 뒤, 20초 안에 게임의 현재 주제 글자를 한 번 눌러주세요.')
+end})
+BasicTab:CreateButton({Name='주제 표시 연결 해제',Callback=function()
+    boundHeader,boundDescriptor=nil,nil;bindArmedUntil=0;topic=nil;pendingTopic=nil
+    bindingMessage='주제 표시를 한 번 연결하세요'
+    if type(writefile)=='function' then pcall(function() writefile(bindingPath,'{}') end) end
+    if type(delfile)=='function' then pcall(function() if type(isfile)=='function' and isfile(bindingPath) then delfile(bindingPath) end end) end
+    notify('연결 해제','다른 주제 표시를 연결할 수 있습니다.')
+end})
+BasicTab:CreateParagraph({Title='화면 주제 자동 읽기',Content='주제 표시 연결 버튼 → 게임의 주제 글자를 한 번 터치하세요. 이후 같은 UI 경로의 Text가 바뀔 때 자동으로 읽습니다. 위에 창이 겹쳐도 UI 값은 읽을 수 있습니다. 이미지·영상 속 글자 OCR은 지원하지 않습니다. 연결 실패 시 주제 인식이 완료된 것으로 표시하지 않습니다.'})
+
 BasicTab:CreateParagraph({Title='영상에서 확인한 단어',Content='1950.mp4의 성공 답안 목록을 반영했습니다. 같은 주제에서는 영상에서 성공한 미사용 단어를 먼저 선택하고, 없으면 기존 후보를 사용합니다. 영상 속 욕실용품의 트리트먼트는 성공 단어로 등록하지 않았습니다.'})
 statusLabel=BasicTab:CreateLabel('상태: 자동 입력 꺼짐')
+-- Manual topic: works even when the on-screen header cannot be read.
+local function manualTopicOptions()
+    local names,list={'자동 감지'},{}
+    for name in pairs(bank) do if not reservedTopic(name) then table.insert(list,name) end end
+    table.sort(list)
+    for _,name in ipairs(list) do table.insert(names,name) end
+    return names
+end
+local manualTopicControl
+local function setManualTopic(value)
+    value=tostring(value or ''):match('^%s*(.-)%s*$')
+    if value=='' or value=='자동 감지' then
+        manualTopic=nil;topic=nil;pendingSource,pendingTopic=nil,nil
+        status('주제 자동 감지')
+        return
+    end
+    local key=topicKey(value):lower()
+    local resolved
+    for name in pairs(bank) do
+        if not reservedTopic(name) and topicKey(name):lower()==key then resolved=name;break end
+    end
+    if not resolved then
+        -- Typed text that contains a known topic name (or the other way round) maps to it.
+        local bestLength=0
+        for name in pairs(bank) do
+            local nameKey=topicKey(name):lower()
+            local length=utf8.len(nameKey) or 0
+            if not reservedTopic(name) and length>=2 and length>bestLength
+                and (key:find(nameKey,1,true) or nameKey:find(key,1,true)) then
+                resolved,bestLength=name,length
+            end
+        end
+    end
+    manualTopic=resolved or value;topic=nil;used={}
+    status('주제 직접 선택: '..manualTopic..(bank[manualTopic] and '' or ' · 등록된 단어 없음'))
+end
+manualTopicControl=BasicTab:CreateDropdown({Name='주제 직접 선택',Options=manualTopicOptions(),
+    CurrentOption={'자동 감지'},MultipleOptions=false,Callback=function(value)
+        setManualTopic(type(value)=='table' and value[1] or value)
+    end})
+BasicTab:CreateInput({Name='주제 직접 입력',PlaceholderText='화면에 보이는 주제 예: 라면 재료',
+    RemoveTextAfterFocusLost=false,Callback=function(value)
+        if tostring(value or '')~='' then setManualTopic(value) end
+    end})
 BasicTab:CreateToggle({Name='자동 입력',CurrentValue=false,Flag='AutoTypeV2',Callback=setEnabled})
 BasicTab:CreateButton({Name='단어 한 번 입력',Callback=function()
     local success,err=pcall(attempt)
@@ -1176,13 +1454,33 @@ BasicTab:CreateParagraph({Title='주제 구분',Content='주제와 플레이어 
 BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=function()
     local scanOK,scanError=pcall(detectTopic)
     local input,inputReason=gameInput()
-    local lines={'WordStackHub diagnostic build 10',
+    local lines={'WordStackHub diagnostic build 11',
         'mode='..tostring(gameMode)..' enabled='..tostring(enabled)..' autoDetect='..tostring(autoDetect),
         'topic='..tostring(topic)..' pending='..tostring(pendingTopic),
         'scan='..tostring(scanOK)..' '..tostring(scanError),
         'input='..(input and input:GetFullName() or tostring(inputReason))}
     local active,waiting=roundReady()
     table.insert(lines,'round='..tostring(active)..' '..tostring(waiting))
+    table.insert(lines,'--- known topic text anywhere (PlayerGui / Workspace) ---')
+    local knownKeys={}
+    for name in pairs(bank) do if not reservedTopic(name) then knownKeys[topicKey(name):lower()]=true end end
+    for key in pairs(topicPeers) do knownKeys[key]=true end
+    local knownCount=0
+    for label in pairs(topicLabels) do
+        if label.Parent and knownKeys[topicKey(displayText(label)):lower()] then
+            knownCount=knownCount+1
+            if knownCount<=40 then
+                local pos,size=label.AbsolutePosition,label.AbsoluteSize
+                local layer=label:FindFirstAncestorWhichIsA('LayerCollector')
+                table.insert(lines,label:GetFullName()..' | '..label.ClassName..' | text='..displayText(label)
+                    ..' | selfVisible='..tostring(label.Visible)..' eligible='..tostring(topicDisplayVisible(label))
+                    ..' | layer='..(layer and layer.ClassName or 'none')
+                    ..' | pos='..math.floor(pos.X)..','..math.floor(pos.Y)
+                    ..' size='..math.floor(size.X)..','..math.floor(size.Y))
+            end
+        end
+    end
+    table.insert(lines,'known topic text objects='..knownCount)
     local function row(item)
         local path=item:GetFullName()
         local safe=path:lower()
@@ -1258,7 +1556,7 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
     local saved=false
     if type(writefile)=='function' then saved=pcall(writefile,'WordStackHub_Diagnostic.txt',report) end
     print(report)
-    notify('감지 진단 v10','현재 주제: '..tostring(topic)..'\n'
+    notify('감지 진단 v11','현재 주제: '..tostring(topic)..'\n'
         ..(copied and '전체 보고서가 복사됐어요. 채팅에 붙여넣어 주세요.'
             or saved and 'WordStackHub_Diagnostic.txt 저장 완료. 파일을 보내주세요.'
             or '전체 보고서를 실행기 콘솔에 표시했습니다.'))
@@ -1364,6 +1662,7 @@ refreshTopicList=function()
     local names=topicNames()
     if selectedTopic and not bank[selectedTopic] then selectedTopic=nil end
     if topicListControl then topicListControl:Refresh(names,true) end
+    if manualTopicControl then pcall(function() manualTopicControl:Refresh(manualTopicOptions(),true) end) end
     showTopicSummary()
 end
 TopicsTab:CreateSection('기본 모드 주제 관리')
@@ -1396,7 +1695,7 @@ TopicsTab:CreateParagraph({Title='사용 방법',Content='새 주제 이름 → 
 -- Restore settings only after every element exists. Never auto-start on reload.
 pcall(function() Rayfield:LoadConfiguration() end)
 enabled=false
-status('v10 준비 완료 · 기본 탭에서 자동 입력을 켜세요')
+status('화면 연결판 준비 완료 · 기본 탭에서 자동 입력을 켜세요')
 notify('복구 완료','탭 내용과 자동 입력 실행부를 복구했습니다.')
 task.spawn(function()
     local lastAttempt=0
