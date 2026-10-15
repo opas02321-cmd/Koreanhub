@@ -547,7 +547,11 @@ local used={}
 local function topicKey(value)
     return (tostring(value):gsub('<[^>]->',''):gsub('%s+',''):gsub('[%p]',''))
 end
+local function isTextObject(item)
+    return item and (item:IsA('TextLabel') or item:IsA('TextButton') or item:IsA('TextBox'))
+end
 local function displayText(label)
+    if not isTextObject(label) then return '' end
     local good,text=pcall(function() return label.ContentText end)
     local raw=(good and text~='' and text) or label.Text
     return (raw:gsub('<[^>]->',''):match('^%s*(.-)%s*$'))
@@ -890,8 +894,8 @@ local worldTopicDistance={}
 local function worldTopic(label)
     local layer=label:FindFirstAncestorWhichIsA('LayerCollector')
     if not layer or not layer:IsA('SurfaceGui') then return nil end
-    local tower=workspace:FindFirstChild('TowerClient')
-    if not tower or not label:IsDescendantOf(tower) then return nil end
+    -- Category boards may be outside TowerClient; require a known topic and
+    -- projection into the active input's header band below instead.
     local part=layer.Adornee or layer.Parent
     if not part or not part:IsA('BasePart') then return nil end
     local camera=workspace.CurrentCamera
@@ -1006,6 +1010,7 @@ local bindArmedUntil,bindArmedAfter=0,0
 local bindingMessage='게임의 일반 주제판 자동 탐색 중'
 local bindingPath='WordStackHub_TopicSource.json'
 local function bindingRoot(kind)
+    if kind=='Workspace' then return workspace end
     if kind=='PlayerGui' then return player:FindFirstChildOfClass('PlayerGui') end
     if kind=='CoreGui' then
         local ok,root=pcall(function() return game:GetService('CoreGui') end)
@@ -1023,6 +1028,7 @@ local function resolveBoundHeader()
     if node and (node:IsA('TextLabel') or node:IsA('TextButton') or node:IsA('TextBox')) then boundHeader=node;return node end
 end
 local function readHeaderText(item)
+    if not isTextObject(item) then return nil end
     local raw=tostring(item.Text or ''):gsub('<[^>]->',''):match('^%s*(.-)%s*$')
     -- Read the actual Text value first; diagnostic ContentText can lag animations.
     local text=explicitTopic(raw) or raw
@@ -1050,7 +1056,7 @@ if type(readfile)=='function' and type(isfile)=='function' then
     pcall(function()
         if isfile(bindingPath) then
             local data=HttpService:JSONDecode(readfile(bindingPath))
-            if type(data)=='table' and (data.root=='PlayerGui' or data.root=='CoreGui') and type(data.path)=='table' and #data.path>0 and #data.path<40 then
+            if type(data)=='table' and (data.root=='PlayerGui' or data.root=='CoreGui' or data.root=='Workspace') and type(data.path)=='table' and #data.path>0 and #data.path<40 then
                 for _,name in ipairs(data.path) do if type(name)~='string' then return end end
                 boundDescriptor=data;bindingMessage='저장된 주제 표시 연결 대기 중'
             end
@@ -1077,13 +1083,39 @@ if inputService.InputBegan then
                 end
             end
         end
+        -- GetGuiObjectsAtPosition does not return world SurfaceGui text.
+        if #found==0 and workspace.CurrentCamera then
+            local camera=workspace.CurrentCamera
+            local ray=camera:ScreenPointToRay(input.Position.X,input.Position.Y)
+            local params=RaycastParams.new()
+            params.FilterType=Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances=player.Character and {player.Character} or {}
+            local hit=workspace:Raycast(ray.Origin,ray.Direction*1000,params)
+            if hit then
+                for label in pairs(topicLabels) do
+                    if isTextObject(label) and topicDisplayVisible(label) then
+                        local layer=label:FindFirstAncestorWhichIsA('LayerCollector')
+                        local part=layer and layer:IsA('SurfaceGui') and (layer.Adornee or layer.Parent)
+                        local text=readHeaderText(label)
+                        local key=text and topicKey(text):lower()
+                        local known=key and topicPeers[key]~=nil
+                        if key then for name in pairs(bank) do
+                            if topicKey(name):lower()==key then known=true;break end
+                        end end
+                        if part==hit.Instance and known and not deletedTopics[key] then
+                            table.insert(found,{item=label,root=workspace,kind='Workspace',height=label.TextBounds.Y})
+                        end
+                    end
+                end
+            end
+        end
         table.sort(found,function(a,b) return a.height>b.height end)
         if found[1] and attachHeader(found[1].item,found[1].root,found[1].kind) then
             bindArmedUntil=0
             notify('주제 표시 연결','연결 완료: '..tostring(readHeaderText(found[1].item))..' · 이후 주제 변경을 자동으로 읽습니다.')
         else
             bindingMessage='누른 위치에서 읽을 수 있는 주제 텍스트를 찾지 못했습니다'
-            notify('연결되지 않음','주제 글자를 직접 눌러주세요. 이미지로 그려진 글자는 이 방식으로 읽을 수 없습니다.')
+            notify('연결되지 않음','주제 글자를 직접 눌러주세요. 3D 주제판도 지원합니다. 이미지에만 포함된 글자는 텍스트로 읽을 수 없습니다.')
         end
     end))
 end
@@ -1108,9 +1140,9 @@ local function detectTopic()
     local description=atPath('Frame.1.7')
     local live=atPath('4.5.1')
     local value
-    if description and topicDisplayVisible(description) then value=initialPrompt(displayText(description)) end
-    if not value and header and topicDisplayVisible(header) then value=readHeaderText(header) end
-    if not value and live and topicDisplayVisible(live) then value=readHeaderText(live) end
+    if isTextObject(description) and topicDisplayVisible(description) then value=initialPrompt(displayText(description)) end
+    if not value and isTextObject(header) and topicDisplayVisible(header) then value=readHeaderText(header) end
+    if not value and isTextObject(live) and topicDisplayVisible(live) then value=readHeaderText(live) end
     if value then
         if pendingTopic~=value then
             pendingSource,pendingTopic,pendingSince=header or live,value,os.clock()
@@ -1245,8 +1277,14 @@ local function roundReady()
     local pos,size=box.AbsolutePosition,box.AbsoluteSize
     if size.X<=0 or size.Y<=0 then return false,'입력창 활성화 대기 중' end
     local screen=box:FindFirstAncestorOfClass('ScreenGui')
-    for label in pairs(topicLabels) do
-        if topicDisplayVisible(label) and label:FindFirstAncestorOfClass('ScreenGui')==screen then
+    for _,label in ipairs(screen and screen:GetDescendants() or {}) do
+        local shown=isTextObject(label) and screen.Enabled
+        local ancestor=label
+        while shown and ancestor and ancestor~=screen do
+            if ancestor:IsA('GuiObject') and not ancestor.Visible then shown=false end
+            ancestor=ancestor.Parent
+        end
+        if shown and label:FindFirstAncestorOfClass('ScreenGui')==screen then
             local text=topicKey(displayText(label))
             if text:find('제한시간종료',1,true) or text:find('게임종료',1,true) or text:find('라운드종료',1,true)
                 or text:find('다음라운드에자동으로참여',1,true) then
@@ -1497,7 +1535,7 @@ BasicTab:CreateParagraph({Title='주제 구분',Content='주제와 플레이어 
 BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=function()
     local scanOK,scanError=pcall(detectTopic)
     local input,inputReason=gameInput()
-    local lines={'WordStackHub diagnostic build 13',
+    local lines={'WordStackHub diagnostic build 14',
         'mode='..tostring(gameMode)..' enabled='..tostring(enabled)..' autoDetect='..tostring(autoDetect),
         'topic='..tostring(topic)..' pending='..tostring(pendingTopic),
         'scan='..tostring(scanOK)..' '..tostring(scanError),
@@ -1524,6 +1562,21 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
         end
     end
     table.insert(lines,'known topic text objects='..knownCount)
+    table.insert(lines,'--- World SurfaceGui text (including unknown topics) ---')
+    local worldCount=0
+    for label in pairs(topicLabels) do
+        local layer=label.Parent and label:FindFirstAncestorWhichIsA('LayerCollector')
+        if layer and layer:IsA('SurfaceGui') and topicDisplayVisible(label) then
+            worldCount=worldCount+1
+            if worldCount<=100 then
+                local part=layer.Adornee or layer.Parent
+                table.insert(lines,label:GetFullName()..' | text='..displayText(label)
+                    ..' | adornee='..(part and part:GetFullName() or 'nil'))
+            end
+        end
+    end
+    table.insert(lines,'world text objects='..worldCount)
+
     local function row(item)
         local path=item:GetFullName()
         local safe=path:lower()
@@ -1580,6 +1633,14 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
                 count=count+1;if count>=180 then table.insert(lines,'Image scan truncated at 180');break end
             end
         end
+        for _,path in ipairs({'Frame.1.Label.2','Frame.1.7','4.4.1'}) do
+            local node=react
+            for name in path:gmatch('[^.]+') do node=node and node:FindFirstChild(name) end
+            if node and not isTextObject(node) then
+                table.insert(lines,'header source '..path..' | '..node.ClassName
+                    ..' | text unavailable: image/container; no OCR')
+            end
+        end
         table.insert(lines,'--- Active input ancestor attributes ---')
         local node=input
         for depth=1,6 do
@@ -1599,7 +1660,7 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
     local saved=false
     if type(writefile)=='function' then saved=pcall(writefile,'WordStackHub_Diagnostic.txt',report) end
     print(report)
-    notify('감지 진단 v13','현재 주제: '..tostring(topic)..'\n'
+    notify('감지 진단 v14','현재 주제: '..tostring(topic)..'\n'
         ..(copied and '전체 보고서가 복사됐어요. 채팅에 붙여넣어 주세요.'
             or saved and 'WordStackHub_Diagnostic.txt 저장 완료. 파일을 보내주세요.'
             or '전체 보고서를 실행기 콘솔에 표시했습니다.'))
