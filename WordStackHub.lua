@@ -313,6 +313,7 @@ local hunminWords=[[
 카드 칼날 커튼 코끝 콩나 크기 큰길 타자 탄생 탑승 태도 토끼 통계 통로 투명 튼튼 특성
 파도 파리 파악 파티 패배 편지 평화 포도 폭풍 표정 풍경 피부 피자 필요 필통
 하교 하늘 하루 학급 학기 학생 한글 한복 한숨 함성 해답 해변 행복 향기 허리 현관 형제 호랑
+화폐 한편 허파
 호박 호수 혼자 화가 화단 화면 환경 환자 활기 회사 효과 후회 휴가 희망
 ]]
 local hunminMore=[[
@@ -631,8 +632,30 @@ for _,family in ipairs(topicFamilies) do
         for _,peer in ipairs(family) do topicPeers[key][topicKey(peer):lower()]=true end
     end
 end
+local function initialPrompt(value)
+    local text=tostring(value or ''):gsub('%s+','')
+    local prefix=text:match('^(.-)초성이들어간단어$')
+    local key=prefix or text
+    if key=='' then return nil end
+    for _,cp in utf8.codes(key) do
+        if cp<0x3131 or cp>0x314E then return nil end
+    end
+    return key
+end
 local function topicWords()
     if not topic then return nil end
+    local prompt=initialPrompt(topic)
+    if prompt then
+        local output,seen={},{}
+        for _,list in pairs(bank) do
+            for _,word in ipairs(list) do
+                if not seen[word] and initial(word):find(prompt,1,true) then
+                    seen[word]=true;table.insert(output,word)
+                end
+            end
+        end
+        return output
+    end
     local key=topicKey(topic):lower()
     if deletedTopics[key] then return {} end
     local peers=similarTopics and topicPeers[key] or nil
@@ -1073,6 +1096,31 @@ local function detectTopic()
         return true
     end
     if not autoDetect then return topic~=nil end
+    -- The observed ReactApp keeps the live problem outside player answer rows.
+    local gui=player:FindFirstChildOfClass('PlayerGui')
+    local app=gui and gui:FindFirstChild('ReactApp')
+    local function atPath(path)
+        local node=app
+        for name in path:gmatch('[^.]+') do node=node and node:FindFirstChild(name) end
+        return node
+    end
+    local header=atPath('Frame.1.Label.2')
+    local description=atPath('Frame.1.7')
+    local live=atPath('4.5.1')
+    local value
+    if description and topicDisplayVisible(description) then value=initialPrompt(displayText(description)) end
+    if not value and header and topicDisplayVisible(header) then value=readHeaderText(header) end
+    if not value and live and topicDisplayVisible(live) then value=readHeaderText(live) end
+    if value then
+        if pendingTopic~=value then
+            pendingSource,pendingTopic,pendingSince=header or live,value,os.clock()
+            topic=nil;return false
+        end
+        if os.clock()-pendingSince<0.15 then return false end
+        if topic~=value then topic=value;used={} end
+        bindingMessage='게임 문제 표시: '..value
+        return true
+    end
     if boundDescriptor then
         local header=resolveBoundHeader()
         local value=header and topicDisplayVisible(header) and readHeaderText(header)
@@ -1200,14 +1248,9 @@ local function roundReady()
     for label in pairs(topicLabels) do
         if topicDisplayVisible(label) and label:FindFirstAncestorOfClass('ScreenGui')==screen then
             local text=topicKey(displayText(label))
-            if text=='제한시간종료' or text=='게임종료' or text=='라운드종료' then
-                local p,z=label.AbsolutePosition,label.AbsoluteSize
-                local centerX=p.X+z.X/2
-                local gap=pos.Y-(p.Y+z.Y)
-                if z.X>0 and z.Y>0 and gap>=-size.Y*0.3 and gap<=math.max(size.Y*2,100)
-                    and centerX>=pos.X-size.X*0.2 and centerX<=pos.X+size.X*1.3 then
-                    return false,'라운드 종료 · 다음 게임 대기 중'
-                end
+            if text:find('제한시간종료',1,true) or text:find('게임종료',1,true) or text:find('라운드종료',1,true)
+                or text:find('다음라운드에자동으로참여',1,true) then
+                return false,'라운드 종료 · 다음 게임 대기 중'
             end
         end
     end
@@ -1454,7 +1497,7 @@ BasicTab:CreateParagraph({Title='주제 구분',Content='주제와 플레이어 
 BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=function()
     local scanOK,scanError=pcall(detectTopic)
     local input,inputReason=gameInput()
-    local lines={'WordStackHub diagnostic build 11',
+    local lines={'WordStackHub diagnostic build 12',
         'mode='..tostring(gameMode)..' enabled='..tostring(enabled)..' autoDetect='..tostring(autoDetect),
         'topic='..tostring(topic)..' pending='..tostring(pendingTopic),
         'scan='..tostring(scanOK)..' '..tostring(scanError),
@@ -1556,7 +1599,7 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
     local saved=false
     if type(writefile)=='function' then saved=pcall(writefile,'WordStackHub_Diagnostic.txt',report) end
     print(report)
-    notify('감지 진단 v11','현재 주제: '..tostring(topic)..'\n'
+    notify('감지 진단 v12','현재 주제: '..tostring(topic)..'\n'
         ..(copied and '전체 보고서가 복사됐어요. 채팅에 붙여넣어 주세요.'
             or saved and 'WordStackHub_Diagnostic.txt 저장 완료. 파일을 보내주세요.'
             or '전체 보고서를 실행기 콘솔에 표시했습니다.'))
