@@ -1003,7 +1003,7 @@ end
 -- This reads Text properties; it is not screenshot OCR and does not infer a title from answers.
 local boundHeader,boundDescriptor=nil,nil
 local bindArmedUntil,bindArmedAfter=0,0
-local bindingMessage='주제 표시를 한 번 연결하세요'
+local bindingMessage='게임의 일반 주제판 자동 탐색 중'
 local bindingPath='WordStackHub_TopicSource.json'
 local function bindingRoot(kind)
     if kind=='PlayerGui' then return player:FindFirstChildOfClass('PlayerGui') end
@@ -1124,8 +1124,7 @@ local function detectTopic()
     if boundDescriptor then
         local header=resolveBoundHeader()
         local value=header and topicDisplayVisible(header) and readHeaderText(header)
-        if not value then topic=nil;return false end
-        if deletedTopics[topicKey(value):lower()] then topic=nil;return false end
+        if value and not deletedTopics[topicKey(value):lower()] then
         if pendingTopic~=value then
             pendingSource,pendingTopic,pendingSince=header,value,os.clock()
             topic=nil;return false
@@ -1134,6 +1133,7 @@ local function detectTopic()
         bindingMessage='화면 주제: '..value
         if topic~=value then topic=value;used={};notify('화면 주제 인식',value) end
         return true
+        end -- An expired saved binding must not block automatic discovery.
     end
     local gui=player:FindFirstChildOfClass('PlayerGui')
     if gui and gui~=watchedGui then watchedGui=gui;watchTopics(gui) end
@@ -1144,8 +1144,8 @@ local function detectTopic()
     for label in pairs(topicLabels) do
         if topicDisplayVisible(label) then
             local value,evidence=topicEvidence(label)
-            -- TowerClient stores category signs across the world, not the active header.
-            -- Do not promote a nearby unrelated sign to the current topic.
+            -- Project TowerClient category boards into the live input's header band.
+            if not value then value,evidence=worldTopic(label) end
             if not value then value,evidence=layoutTopic(label) end
             if value then
                 value=value:match('^%s*(.-)%s*$')
@@ -1497,7 +1497,7 @@ BasicTab:CreateParagraph({Title='주제 구분',Content='주제와 플레이어 
 BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=function()
     local scanOK,scanError=pcall(detectTopic)
     local input,inputReason=gameInput()
-    local lines={'WordStackHub diagnostic build 12',
+    local lines={'WordStackHub diagnostic build 13',
         'mode='..tostring(gameMode)..' enabled='..tostring(enabled)..' autoDetect='..tostring(autoDetect),
         'topic='..tostring(topic)..' pending='..tostring(pendingTopic),
         'scan='..tostring(scanOK)..' '..tostring(scanError),
@@ -1599,7 +1599,7 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
     local saved=false
     if type(writefile)=='function' then saved=pcall(writefile,'WordStackHub_Diagnostic.txt',report) end
     print(report)
-    notify('감지 진단 v12','현재 주제: '..tostring(topic)..'\n'
+    notify('감지 진단 v13','현재 주제: '..tostring(topic)..'\n'
         ..(copied and '전체 보고서가 복사됐어요. 채팅에 붙여넣어 주세요.'
             or saved and 'WordStackHub_Diagnostic.txt 저장 완료. 파일을 보내주세요.'
             or '전체 보고서를 실행기 콘솔에 표시했습니다.'))
