@@ -767,6 +767,7 @@ local function topicDisplayVisible(label,purpose)
     while node and node~=layer.Parent do
         if node:IsA('GuiObject') and not node.Visible then return false end
         local name=node.Name:lower()
+        if purpose~='input' and name:match('^user_%d+$') then return false end
         for _,term in ipairs({'rayfield','textchat','chatwindow','bubblechat','leaderboard','playerlist','money','cash','coin','랭킹','채팅'}) do
             if name:find(term,1,true) then return false end
         end
@@ -786,6 +787,11 @@ local function topicDisplayVisible(label,purpose)
     if layer:IsA('ScreenGui') then
         local p,z=label.AbsolutePosition,label.AbsoluteSize
         if z.X<=0 or z.Y<=0 then return false end
+        local camera=workspace.CurrentCamera
+        if camera and camera.ViewportSize then
+            local view=camera.ViewportSize
+            if view.X and view.Y and (p.X+z.X<=0 or p.Y+z.Y<=0 or p.X>=view.X or p.Y>=view.Y) then return false end
+        end
         local node=label.Parent
         while node and node~=layer do
             if node:IsA('GuiObject') and node.ClipsDescendants then
@@ -942,7 +948,8 @@ local function detectTopic()
     for label in pairs(topicLabels) do
         if topicDisplayVisible(label) then
             local value,evidence=topicEvidence(label)
-            if not value then value,evidence=worldTopic(label) end
+            -- TowerClient stores category signs across the world, not the active header.
+            -- Do not promote a nearby unrelated sign to the current topic.
             if not value then value,evidence=layoutTopic(label) end
             if value then
                 value=value:match('^%s*(.-)%s*$')
@@ -1169,7 +1176,7 @@ BasicTab:CreateParagraph({Title='주제 구분',Content='주제와 플레이어 
 BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=function()
     local scanOK,scanError=pcall(detectTopic)
     local input,inputReason=gameInput()
-    local lines={'WordStackHub diagnostic build 9',
+    local lines={'WordStackHub diagnostic build 10',
         'mode='..tostring(gameMode)..' enabled='..tostring(enabled)..' autoDetect='..tostring(autoDetect),
         'topic='..tostring(topic)..' pending='..tostring(pendingTopic),
         'scan='..tostring(scanOK)..' '..tostring(scanError),
@@ -1215,14 +1222,34 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
     else
         table.insert(lines,'ReactApp missing')
     end
-    local tower=workspace:FindFirstChild('TowerClient')
-    if tower then
+    if react then
+        table.insert(lines,'--- ReactApp image objects (header may be an image/atlas) ---')
         count=0
-        for _,item in ipairs(tower:GetDescendants()) do
-            if item:IsA('TextLabel') and item:GetFullName():find('.Cat',1,true) then
-                pcall(row,item);count=count+1
-                if count>=120 then table.insert(lines,'World scan truncated at 120');break end
+        for _,item in ipairs(react:GetDescendants()) do
+            if item:IsA('ImageLabel') or item:IsA('ImageButton') then
+                local path=item:GetFullName()
+                -- Game HUD and active entry panel first; no leaderboard/player-world scan.
+                local pos,size=item.AbsolutePosition,item.AbsoluteSize
+                local offset,rect=item.ImageRectOffset,item.ImageRectSize
+                table.insert(lines,path..' | '..item.ClassName..' | image='..tostring(item.Image)
+                    ..' | rectOffset='..offset.X..','..offset.Y..' rectSize='..rect.X..','..rect.Y
+                    ..' | visible='..tostring(item.Visible)..' eligible='..tostring(topicDisplayVisible(item))
+                    ..' | position='..math.floor(pos.X)..','..math.floor(pos.Y)
+                    ..' size='..math.floor(size.X)..','..math.floor(size.Y))
+                count=count+1;if count>=180 then table.insert(lines,'Image scan truncated at 180');break end
             end
+        end
+        table.insert(lines,'--- Active input ancestor attributes ---')
+        local node=input
+        for depth=1,6 do
+            if not node or node==gui then break end
+            local ok,attributes=pcall(function() return node:GetAttributes() end)
+            if ok then
+                for key,value in pairs(attributes) do
+                    table.insert(lines,node:GetFullName()..' | attribute '..key..'='..tostring(value):sub(1,160))
+                end
+            end
+            node=node.Parent
         end
     end
     local report=table.concat(lines,'\n')
@@ -1231,7 +1258,7 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
     local saved=false
     if type(writefile)=='function' then saved=pcall(writefile,'WordStackHub_Diagnostic.txt',report) end
     print(report)
-    notify('감지 진단 v9','현재 주제: '..tostring(topic)..'\n'
+    notify('감지 진단 v10','현재 주제: '..tostring(topic)..'\n'
         ..(copied and '전체 보고서가 복사됐어요. 채팅에 붙여넣어 주세요.'
             or saved and 'WordStackHub_Diagnostic.txt 저장 완료. 파일을 보내주세요.'
             or '전체 보고서를 실행기 콘솔에 표시했습니다.'))
@@ -1369,7 +1396,7 @@ TopicsTab:CreateParagraph({Title='사용 방법',Content='새 주제 이름 → 
 -- Restore settings only after every element exists. Never auto-start on reload.
 pcall(function() Rayfield:LoadConfiguration() end)
 enabled=false
-status('v9 준비 완료 · 기본 탭에서 자동 입력을 켜세요')
+status('v10 준비 완료 · 기본 탭에서 자동 입력을 켜세요')
 notify('복구 완료','탭 내용과 자동 입력 실행부를 복구했습니다.')
 task.spawn(function()
     local lastAttempt=0
