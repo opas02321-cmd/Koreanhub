@@ -1169,7 +1169,7 @@ BasicTab:CreateParagraph({Title='주제 구분',Content='주제와 플레이어 
 BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=function()
     local scanOK,scanError=pcall(detectTopic)
     local input,inputReason=gameInput()
-    local lines={'WordStackHub diagnostic build 8',
+    local lines={'WordStackHub diagnostic build 9',
         'mode='..tostring(gameMode)..' enabled='..tostring(enabled)..' autoDetect='..tostring(autoDetect),
         'topic='..tostring(topic)..' pending='..tostring(pendingTopic),
         'scan='..tostring(scanOK)..' '..tostring(scanError),
@@ -1200,14 +1200,20 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
     -- popup hid exactly the evidence needed to diagnose a failed title match.
     local gui=player:FindFirstChildOfClass('PlayerGui')
     local count=0
-    if gui then
-        for _,item in ipairs(gui:GetDescendants()) do
+    local react=gui and gui:FindFirstChild('ReactApp')
+    if react then
+        table.insert(lines,'--- ReactApp game UI ---')
+        for _,item in ipairs(react:GetDescendants()) do
             if item:IsA('TextLabel') or item:IsA('TextButton') or item:IsA('TextBox') then
                 local ok,err=pcall(row,item)
                 if not ok then table.insert(lines,item:GetFullName()..' | read error='..tostring(err)) end
-                count=count+1;if count>=300 then table.insert(lines,'UI scan truncated at 300');break end
+                count=count+1
+                if count>=500 then table.insert(lines,'ReactApp scan truncated at 500');break end
             end
         end
+        table.insert(lines,'ReactApp text objects='..count)
+    else
+        table.insert(lines,'ReactApp missing')
     end
     local tower=workspace:FindFirstChild('TowerClient')
     if tower then
@@ -1225,7 +1231,7 @@ BasicTab:CreateButton({Name='감지 상태 진단 · 보고서 복사',Callback=
     local saved=false
     if type(writefile)=='function' then saved=pcall(writefile,'WordStackHub_Diagnostic.txt',report) end
     print(report)
-    notify('감지 진단 v8','현재 주제: '..tostring(topic)..'\n'
+    notify('감지 진단 v9','현재 주제: '..tostring(topic)..'\n'
         ..(copied and '전체 보고서가 복사됐어요. 채팅에 붙여넣어 주세요.'
             or saved and 'WordStackHub_Diagnostic.txt 저장 완료. 파일을 보내주세요.'
             or '전체 보고서를 실행기 콘솔에 표시했습니다.'))
@@ -1363,7 +1369,7 @@ TopicsTab:CreateParagraph({Title='사용 방법',Content='새 주제 이름 → 
 -- Restore settings only after every element exists. Never auto-start on reload.
 pcall(function() Rayfield:LoadConfiguration() end)
 enabled=false
-status('v8 준비 완료 · 기본 탭에서 자동 입력을 켜세요')
+status('v9 준비 완료 · 기본 탭에서 자동 입력을 켜세요')
 notify('복구 완료','탭 내용과 자동 입력 실행부를 복구했습니다.')
 task.spawn(function()
     local lastAttempt=0
